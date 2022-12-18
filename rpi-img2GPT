@@ -21,7 +21,7 @@ DisplayUsage() {
 
 	${COMMAND} copies a raspiOS disk image to a GPT-partitioned device and performs a few adjustments to allow the raspberry-pi to boot directly from the device.
 
-	Usage: 
+	Usage:
 	${COMMAND} --device|-d device_name --image|-i disk_image
 
 	EOF
@@ -107,7 +107,7 @@ trap Cleanup SIGHUP SIGINT SIGQUIT SIGABRT SIGTERM
 
 # STEP-1: Prepare the hard disk
 ## unmount the partitions of the specified device, if any
-for mp in ${mountpoints}; do 
+for mp in ${mountpoints}; do
 	umount ${mp}
 done
 
@@ -134,7 +134,7 @@ w
 Y
 EOF
 
-## Format the 3 partitions 
+## Format the 3 partitions
 mkfs.fat -F 32 -n BOOT ${DEVICE_NAME}1 1>/dev/null 2>&1
 mkfs.ext4 -F -L root ${DEVICE_NAME}2 1>/dev/null
 
@@ -162,9 +162,9 @@ mount /dev/mapper/${device} ${TEMP_DIR}/s2
 
 ## Copy content of the disk image to the device
 echo "Copying boot-partition files..."
-rsync -a ${TEMP_DIR}/s1/ ${TEMP_DIR}/d1 
+rsync -a ${TEMP_DIR}/s1/ ${TEMP_DIR}/d1
 echo "Copying root-partition files..."
-rsync -a ${TEMP_DIR}/s2/ ${TEMP_DIR}/d2 
+rsync -a ${TEMP_DIR}/s2/ ${TEMP_DIR}/d2
 
 # STEP-3: adjust some settings
 
@@ -178,10 +178,10 @@ sed -e 's; init=/usr/lib/raspi-config/init_resize.sh;;' -i ${TEMP_DIR}/d1/cmdlin
 sed -e 's; quiet;;' -i ${TEMP_DIR}/d1/cmdline.txt
 sed -e 's; fsck.repair=yes; fsck.repair=no;' -i ${TEMP_DIR}/d1/cmdline.txt
 
-## Change mount point in /boot/cmdline.txt 
+## Change mount point in /boot/cmdline.txt
 sed -e 's;root=PARTUUID=[0-9,a-f,\-]*;root=PARTLABEL=root;' -i ${TEMP_DIR}/d1/cmdline.txt
 
-## Change mount points in /etc/fstab 
+## Change mount points in /etc/fstab
 sed -e 's;^PARTUUID=.*/boot;PARTLABEL=boot \t/boot;' -i ${TEMP_DIR}/d2/etc/fstab
 sed -e 's;^PARTUUID=.*/[[:blank:]];PARTLABEL=root \t/;' -i ${TEMP_DIR}/d2/etc/fstab
 
