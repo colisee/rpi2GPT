@@ -1,6 +1,6 @@
 #!/bin/bash
 
-##  Copyright (C) 2021  Robin ALEXANDER
+##  Copyright (C) 2021,2022  Robin ALEXANDER
 ##
 ##  This program is free software: you can redistribute it and/or modify
 ##  it under the terms of the GNU General Public License as published by
@@ -30,29 +30,14 @@ DisplayUsage() {
 }
 
 GetArguments() {
-	## Translate long options to short ones
-	for arg in $@; do
-		delim=""
-		case ${arg} in
-			"--help") 	args="${args}-h" ;;
-			"--device") args="${args}-d" ;;
-			"--image")	args="${args}-i" ;;
-			*)			[[ "${arg:0:1}" == "-" ]] || delim="\""
-      					args="${args}${delim}${arg}${delim} ";;
+	while [ "$#" -gt 0 ] ; do
+		case "${1}" in
+			(-h|--help) DisplayUsage; exit 0 ;;
+			(-d|--device) DEVICE_NAME="${2}" ; shift ;;
+			(-i¦--image) DISK_IMAGE="${2}" ; shift ;;
+			*) DisplayImage; exit 1 ;;
 		esac
-	done
-
-	# reset the translated args
-	eval set -- "${args}"
-
-	## Parse short options
-	while getopts "hd:i:" opt; do
-		case ${opt} in
-			"h")	DisplayUsage; exit 0 ;;
-			"d")	DEVICE_NAME=${OPTARG} ;;
-			"i")	DISK_IMAGE=${OPTARG} ;;
-			*)		DisplayUsage ;;
-		esac
+		shift
 	done
 }
 
