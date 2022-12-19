@@ -17,9 +17,11 @@
 
 DisplayUsage() {
 
-	cat <<-EOF
+	cat <<- EOF
 
-	${COMMAND} copies a raspiOS disk image to a GPT-partitioned device and performs a few adjustments to allow the raspberry-pi to boot directly from the device.
+	${COMMAND} flashes a raspberrypi disk image to a GPT-partitioned device
+	and performs a few adjustments to allow the raspberry-pi to boot directly
+	from the device.
 
 	Usage:
 	${COMMAND} --device|-d device_name --image|-i disk_image
