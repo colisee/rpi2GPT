@@ -75,6 +75,17 @@ CheckConditions() {
 	fi
 }
 
+CheckDependencies() {
+
+	while [ "$#" -gt 0 ] ; do
+		if [ ! $(which "${1}") ]; then
+			echo "Command ${1} not found" >&2
+			exit 6
+		fi
+		shift
+	done
+}
+
 Cleanup() {
 
 	echo "Cleaning up..."
@@ -100,6 +111,9 @@ GetArguments $@
 
 ## Check conditions
 CheckConditions
+
+## Check dependencies
+CheckDependencies sgdisk mkfs.fat mkfs.ext4 kpartx
 
 ## Set program execution flags
 set -euo pipefail
