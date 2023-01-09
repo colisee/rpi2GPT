@@ -57,7 +57,9 @@ CheckConditions() {
 		exit 2
 	fi
 
-	mountpoints=$(lsblk --noheadings --list -o MOUNTPOINT ${DEVICE_NAME} 2>/dev/null)
+	mountpoints=$(lsblk \
+		--noheadings --list -o MOUNTPOINT ${DEVICE_NAME} 2>/dev/null \
+	)
 	if [ ${?} -ne 0 ]; then
 		echo "Device ${DEVICE_NAME} not found" >&2
 		exit 3
@@ -133,8 +135,16 @@ sgdisk --zap-all ${DEVICE_NAME} 1>/dev/null
 
 ## Create 2 partitions
 echo " > Creating partitions on ${DEVICE_NAME}..."
-sgdisk --new=0:0:+64M --typecode=0:0700 --change-name=0:boot ${DEVICE_NAME} 1>/dev/null 2>&1
-sgdisk --new=0:0:0 --typecode=0:8300 --change-name=0:root ${DEVICE_NAME} 1>/dev/null 2>&1
+sgdisk \
+	--new=0:0:+64M \
+	--typecode=0:0700 \
+	--change-name=0:boot \
+	${DEVICE_NAME} 1>/dev/null 2>&1
+sgdisk \
+	--new=0:0:0 \
+	--typecode=0:8300 \
+	--change-name=0:root \
+	${DEVICE_NAME} 1>/dev/null 2>&1
 
 ## Create an hybrid MBR with partition type "0c" so that bootloader finds it
 echo " > Adding hybrid MBR table..."
