@@ -88,7 +88,7 @@ CheckDependencies() {
 
 Cleanup() {
 
-	echo "Cleaning up..."
+	echo " > Cleaning up..."
 	# Unmount partitions
 	umount ${TEMP_DIR}/*
 
@@ -128,15 +128,16 @@ for mp in ${mountpoints}; do
 done
 
 ## Remove previous content
-echo "Erasing device ${DEVICE_NAME}..."
+echo " > Erasing device ${DEVICE_NAME}..."
 sgdisk --zap-all ${DEVICE_NAME} 1>/dev/null
 
 ## Create 2 partitions
-echo "Preparing device ${DEVICE_NAME}..."
-sgdisk --new=0:0:+64M --typecode=0:0700 --change-name=0:boot ${DEVICE_NAME} 1>/dev/null
-sgdisk --new=0:0:0 --typecode=0:8300 --change-name=0:root ${DEVICE_NAME} 1>/dev/null
+echo " > Creating partitions on ${DEVICE_NAME}..."
+sgdisk --new=0:0:+64M --typecode=0:0700 --change-name=0:boot ${DEVICE_NAME} 1>/dev/null 2>&1
+sgdisk --new=0:0:0 --typecode=0:8300 --change-name=0:root ${DEVICE_NAME} 1>/dev/null 2>&1
 
 ## Create an hybrid MBR with partition type "0c" so that bootloader finds it
+echo " > Adding hybrid MBR table..."
 cat << EOF | gdisk ${DEVICE_NAME} 1>/dev/null
 r
 h
@@ -151,8 +152,9 @@ Y
 EOF
 
 ## Format the 3 partitions
+echo " > Creating the file systems..."
 mkfs.fat -F 32 -n BOOT ${DEVICE_NAME}1 1>/dev/null 2>&1
-mkfs.ext4 -F -L root ${DEVICE_NAME}2 1>/dev/null
+mkfs.ext4 -F -L root ${DEVICE_NAME}2 1>/dev/null 2>&1
 
 # STEP-2: Copy the content of the disk image to the hard disk
 ## Create a temporary directory
@@ -177,29 +179,31 @@ mkdir ${TEMP_DIR}/s2
 mount /dev/mapper/${device} ${TEMP_DIR}/s2
 
 ## Copy content of the disk image to the device
-echo "Copying boot-partition files..."
+echo " > Copying boot-partition files..."
 rsync -a ${TEMP_DIR}/s1/ ${TEMP_DIR}/d1
-echo "Copying root-partition files..."
+echo " > Copying root-partition files..."
 rsync -a ${TEMP_DIR}/s2/ ${TEMP_DIR}/d2
 
 # STEP-3: adjust some settings
+echo " > Making few adjustments..."
 
-## /boot/config.txt: Add bootcode_delay and boot_delay
-echo "Making few adjustments..."
+## /boot/config.txt
 echo 'bootcode_delay=5' >> ${TEMP_DIR}/d1/config.txt
 echo 'boot_delay=5' >> ${TEMP_DIR}/d1/config.txt
 
-## /boot/cmdline.txt: Remove one-time root file system resizing, quiet option and fsck option
-sed -e 's; init=/usr/lib/raspi-config/init_resize.sh;;' -i ${TEMP_DIR}/d1/cmdline.txt
-sed -e 's; quiet;;' -i ${TEMP_DIR}/d1/cmdline.txt
-sed -e 's; fsck.repair=yes; fsck.repair=no;' -i ${TEMP_DIR}/d1/cmdline.txt
+## /boot/cmdline.txt
+sed \
+	-e 's: init=[[:graph:]]*::' \
+	-e 's: fsck.repair=yes::' \
+	-e 's: quiet::' \
+	-e 's:root=PARTUUID=[0-9,a-f,\-]*:root=PARTLABEL=root:' \
+	-i ${TEMP_DIR}/d1/cmdline.txt
 
-## Change mount point in /boot/cmdline.txt
-sed -e 's;root=PARTUUID=[0-9,a-f,\-]*;root=PARTLABEL=root;' -i ${TEMP_DIR}/d1/cmdline.txt
-
-## Change mount points in /etc/fstab
-sed -e 's;^PARTUUID=.*/boot;PARTLABEL=boot \t/boot;' -i ${TEMP_DIR}/d2/etc/fstab
-sed -e 's;^PARTUUID=.*/[[:blank:]];PARTLABEL=root \t/;' -i ${TEMP_DIR}/d2/etc/fstab
+## /etc/fstab
+sed \
+	-e 's:^PARTUUID=.*/boot:PARTLABEL=boot \t/boot:' \
+	-e 's:^PARTUUID=.*/[[:blank:]]:PARTLABEL=root \t/:' \
+	-i ${TEMP_DIR}/d2/etc/fstab
 
 # Clean up and exit
 Cleanup
