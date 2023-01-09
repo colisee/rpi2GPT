@@ -34,10 +34,10 @@ DisplayUsage() {
 GetArguments() {
 	while [ "$#" -gt 0 ] ; do
 		case "${1}" in
-			(-h|--help) DisplayUsage; exit 0 ;;
-			(-d|--device) DEVICE_NAME="${2}" ; shift ;;
-			(-i¦--image) DISK_IMAGE="${2}" ; shift ;;
-			*) DisplayImage; exit 1 ;;
+			-h|--help) DisplayUsage; exit 0 ;;
+			-d|--device) DEVICE_NAME="${2}" ; shift ;;
+			-i|--image) DISK_IMAGE="${2}" ; shift ;;
+			*) DisplayUsage; exit 1 ;;
 		esac
 		shift
 	done
