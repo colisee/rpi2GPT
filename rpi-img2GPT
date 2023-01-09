@@ -57,7 +57,7 @@ CheckConditions() {
 		exit 2
 	fi
 
-	mountpoints=$(lsblk --noheadings --list -o MOUNTPOINTS ${DEVICE_NAME} 2>/dev/null)
+	mountpoints=$(lsblk --noheadings --list -o MOUNTPOINT ${DEVICE_NAME} 2>/dev/null)
 	if [ ${?} -ne 0 ]; then
 		echo "Device ${DEVICE_NAME} not found" >&2
 		exit 3
