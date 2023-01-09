@@ -187,10 +187,6 @@ cp --archive ${TEMP_DIR}/s2/* ${TEMP_DIR}/d2
 # STEP-3: adjust some settings
 echo " > Making few adjustments..."
 
-## /boot/config.txt
-echo 'bootcode_delay=5' >> ${TEMP_DIR}/d1/config.txt
-echo 'boot_delay=5' >> ${TEMP_DIR}/d1/config.txt
-
 ## /boot/cmdline.txt
 sed \
 	-e 's: init=[[:graph:]]*::' \
