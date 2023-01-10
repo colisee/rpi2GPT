@@ -95,7 +95,7 @@ Cleanup() {
 	umount ${TEMP_DIR}/*
 
 	# Unmap disk image
-	kpartx -d ${DISK_IMAGE}
+	losetup --detach ${LOOP_DEVICE}
 
 	# Delete the temporary directory
 	if [ -d ${TEMP_DIR} ]; then
@@ -115,7 +115,7 @@ GetArguments $@
 CheckConditions
 
 ## Check dependencies
-CheckDependencies sgdisk mkfs.fat mkfs.ext4 kpartx
+CheckDependencies sgdisk mkfs.fat mkfs.ext4 losetup
 
 ## Set program execution flags
 set -euo pipefail
@@ -161,7 +161,7 @@ w
 Y
 EOF
 
-## Format the 3 partitions
+## Format the partitions
 echo " > Creating the file systems..."
 mkfs.fat -F 32 -n BOOT ${DEVICE_NAME}1 1>/dev/null 2>&1
 mkfs.ext4 -F -L root ${DEVICE_NAME}2 1>/dev/null 2>&1
@@ -177,16 +177,13 @@ mkdir ${TEMP_DIR}/d2
 mount ${DEVICE_NAME}2 ${TEMP_DIR}/d2
 
 ## Map the disk image to a loop device
-readonly LIST_MAPPINGS=$(kpartx -asv ${DISK_IMAGE})
+readonly LOOP_DEVICE=$(losetup --find --partscan --show ${DISK_IMAGE})
 
 ## Mount the 2 disk image partitions
-device=$(echo ${LIST_MAPPINGS} | cut -d" " -f3)
 mkdir ${TEMP_DIR}/s1
-mount /dev/mapper/${device} ${TEMP_DIR}/s1
-
-device=$(echo ${LIST_MAPPINGS} | cut -d" " -f12)
+mount ${LOOP_DEVICE}p1 ${TEMP_DIR}/s1
 mkdir ${TEMP_DIR}/s2
-mount /dev/mapper/${device} ${TEMP_DIR}/s2
+mount ${LOOP_DEVICE}p2 ${TEMP_DIR}/s2
 
 ## Copy content of the disk image to the device
 echo " > Copying boot-partition files..."
