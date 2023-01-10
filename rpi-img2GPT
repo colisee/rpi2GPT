@@ -91,15 +91,16 @@ CheckDependencies() {
 Cleanup() {
 
 	echo " > Cleaning up..."
-	# Unmount partitions
-	umount ${TEMP_DIR}/*
+
+	# Unmount partitions and delete the temporary directory
+	if [ -d ${TEMP_DIR} ]; then
+		umount ${TEMP_DIR}/*
+		rm -rf ${TEMP_DIR}
+	fi
 
 	# Unmap disk image
-	losetup --detach ${LOOP_DEVICE}
-
-	# Delete the temporary directory
-	if [ -d ${TEMP_DIR} ]; then
-		rm -rf ${TEMP_DIR}
+	if [ ! -z ${LOOP_DEVICE} ]; then
+		losetup --detach ${LOOP_DEVICE}
 	fi
 }
 
