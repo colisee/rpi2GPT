@@ -1,6 +1,6 @@
 #!/bin/bash
 
-##  Copyright (C) 2021,2022  Robin ALEXANDER
+##  Copyright (C) 2021..2023  Robin ALEXANDER
 ##
 ##  This program is free software: you can redistribute it and/or modify
 ##  it under the terms of the GNU General Public License as published by
@@ -94,7 +94,9 @@ Cleanup() {
 
 	# Unmount partitions and delete the temporary directory
 	if [ -d ${TEMP_DIR} ]; then
-		umount ${TEMP_DIR}/*
+		if (mount | grep --silent ${TEMP_DIR}); then
+			umount ${TEMP_DIR}/*
+		fi
 		rm -rf ${TEMP_DIR}
 	fi
 
@@ -124,7 +126,7 @@ set -euo pipefail
 ## Intercept interruptions
 trap Cleanup SIGHUP SIGINT SIGQUIT SIGABRT SIGTERM
 
-# STEP-1: Prepare the hard disk
+# STEP-1: Prepare the GPT device
 ## unmount the partitions of the specified device, if any
 for mp in ${mountpoints}; do
 	umount ${mp}
@@ -134,7 +136,7 @@ done
 echo " > Erasing device ${DEVICE_NAME}..."
 sgdisk --zap-all ${DEVICE_NAME} 1>/dev/null
 
-## Create 2 partitions
+## Create the partitions
 echo " > Creating partitions on ${DEVICE_NAME}..."
 sgdisk \
 	--new=0:0:+64M \
@@ -167,47 +169,47 @@ echo " > Creating the file systems..."
 mkfs.fat -F 32 -n BOOT ${DEVICE_NAME}1 1>/dev/null 2>&1
 mkfs.ext4 -F -L root ${DEVICE_NAME}2 1>/dev/null 2>&1
 
-# STEP-2: Copy the content of the disk image to the hard disk
-## Create a temporary directory
-readonly TEMP_DIR=$(mktemp -d)
-
-## Mount the 2 hard-disk partitions
-mkdir ${TEMP_DIR}/d1
-mount ${DEVICE_NAME}1 ${TEMP_DIR}/d1
-mkdir ${TEMP_DIR}/d2
-mount ${DEVICE_NAME}2 ${TEMP_DIR}/d2
+# STEP-2: Copy the content of the disk image to the GPT device
 
 ## Map the disk image to a loop device
-readonly LOOP_DEVICE=$(losetup --find --partscan --show ${DISK_IMAGE})
+LOOP_DEVICE=$(losetup --find --partscan --show ${DISK_IMAGE})
 
-## Mount the 2 disk image partitions
-mkdir ${TEMP_DIR}/s1
-mount ${LOOP_DEVICE}p1 ${TEMP_DIR}/s1
-mkdir ${TEMP_DIR}/s2
-mount ${LOOP_DEVICE}p2 ${TEMP_DIR}/s2
+## Create a temporary directory structure
+TEMP_DIR=$(mktemp --directory)
+mkdir ${TEMP_DIR}/from
+mkdir ${TEMP_DIR}/to
 
-## Copy content of the disk image to the device
+## Copy boot partition
+mount --read-only ${LOOP_DEVICE}p1 ${TEMP_DIR}/from
+mount ${DEVICE_NAME}1 ${TEMP_DIR}/to
+
 echo " > Copying boot-partition files..."
-cp --archive ${TEMP_DIR}/s1/* ${TEMP_DIR}/d1
-echo " > Copying root-partition files..."
-cp --archive ${TEMP_DIR}/s2/* ${TEMP_DIR}/d2
-
-# STEP-3: adjust some settings
-echo " > Making few adjustments..."
-
-## /boot/cmdline.txt
+cp --archive ${TEMP_DIR}/from/* ${TEMP_DIR}/to
+echo " > Adjusting file /boot/cmdline.txt..."
 sed \
 	-e 's: init=[[:graph:]]*::' \
 	-e 's: fsck.repair=yes::' \
 	-e 's: quiet::' \
 	-e 's:root=PARTUUID=[0-9,a-f,\-]*:root=PARTLABEL=root:' \
-	-i ${TEMP_DIR}/d1/cmdline.txt
+	-i ${TEMP_DIR}/to/cmdline.txt
 
-## /etc/fstab
+umount ${LOOP_DEVICE}p1
+umount ${DEVICE_NAME}1
+
+## Copy root partition
+mount --read-only ${LOOP_DEVICE}p2 ${TEMP_DIR}/from
+mount ${DEVICE_NAME}2 ${TEMP_DIR}/to
+
+echo " > Copying root-partition files..."
+cp --archive ${TEMP_DIR}/from/* ${TEMP_DIR}/to
+echo " > Adjusting file /etc/fstab..."
 sed \
 	-e 's:^PARTUUID=.*/boot:PARTLABEL=boot \t/boot:' \
 	-e 's:^PARTUUID=.*/[[:blank:]]:PARTLABEL=root \t/:' \
-	-i ${TEMP_DIR}/d2/etc/fstab
+	-i ${TEMP_DIR}/to/etc/fstab
+
+umount ${LOOP_DEVICE}p2
+umount ${DEVICE_NAME}2
 
 # Clean up and exit
 Cleanup
