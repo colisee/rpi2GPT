@@ -22,21 +22,46 @@ DisplayUsage() {
 	${COMMAND} flashes a raspberrypi disk image to a GPT-partitioned device
 	and performs a few adjustments to allow the raspberry-pi to boot directly
 	from the device.
+	You can use the suffix K,M,G,T when specifying partition sizes
 
 	Usage:
-	${COMMAND} --device|-d device_name --image|-i disk_image
+	${COMMAND} arguments
+
+	Mandatory arguments:
+		-d --device <device_name>
+    -i --image <disk_image>
+
+	Optional arguments:
+		--boot-size <size_of_boot_partition> by default 64M
+		--root-size <size_of_root_partition> by default the remaining space
+		--home-size <size_of_home_partition> by default none
+		--var-size  <size_of_var_partition>  by default none
 
 	EOF
 
 	exit 0
 }
 
+SetSize() {
+
+	if [ "${1}" = "0" ]; then
+		echo "${1}"
+	else
+		echo "+${1}"
+	fi
+}
+
 GetArguments() {
+
 	while [ "$#" -gt 0 ] ; do
 		case "${1}" in
 			-h|--help) DisplayUsage; exit 0 ;;
-			-d|--device) DEVICE_NAME="${2}" ; shift ;;
-			-i|--image) DISK_IMAGE="${2}" ; shift ;;
+			-d|--device) deviceName="${2}" ; shift ;;
+			-i|--image) diskImage="${2}" ; shift ;;
+			--boot-size) bootSize=$(SetSize "${2}") ; shift ;;
+			--root-size) rootSize=$(SetSize "${2}") ; shift ;;
+			--home-size) homeSize=$(SetSize "${2}") ; shift ;;
+			--var-size) varSize=$(SetSize "${2}") ; shift ;;
 			*) DisplayUsage; exit 1 ;;
 		esac
 		shift
@@ -52,28 +77,35 @@ CheckConditions() {
 	fi
 
 	# Check that the device exists
-	if [ -z ${DEVICE_NAME} ]; then
+	if [ -z "${deviceName}" ]; then
 		echo "Device name not specified" >&2
 		exit 2
 	fi
 
 	mountpoints=$(lsblk \
-		--noheadings --list -o MOUNTPOINT ${DEVICE_NAME} 2>/dev/null \
+		--noheadings --list -o MOUNTPOINT ${deviceName} 2>/dev/null \
 	)
 	if [ ${?} -ne 0 ]; then
-		echo "Device ${DEVICE_NAME} not found" >&2
+		echo "Device ${deviceName} not found" >&2
 		exit 3
 	fi
 
 	# Check that the disk image exists
-	if [ -z ${DISK_IMAGE} ]; then
+	if [ -z "${diskImage}" ]; then
 		echo "Disk image not specified" >&2
 		exit 4
 	fi
 
-	if [ ! -f ${DISK_IMAGE} ]; then
-		echo "Disk image ${DISK_IMAGE} not found" >&2
+	if [ ! -f ${diskImage} ]; then
+		echo "Disk image ${diskImage} not found" >&2
 		exit 5
+	fi
+
+	# Check if --root-size becomes a mandatory argument
+	if [ "${rootSize}" = "0" ] && \
+	   ([ -n "${homeSize}" ] || [ -n "${varSize}" ]); then
+		echo "--root-size must be specified" >&2
+		exit 6
 	fi
 }
 
@@ -93,23 +125,33 @@ Cleanup() {
 	echo " > Cleaning up..."
 
 	# Unmount partitions and delete the temporary directory
-	if [ -d ${TEMP_DIR} ]; then
-		if (mount | grep --silent ${TEMP_DIR}); then
-			umount ${TEMP_DIR}/*
+	if [ -z "${tempDir}" ] && [ -d ${tempDir} ]; then
+		if (mount | grep --silent ${tempDir}); then
+			umount ${tempDir}/from
+			umount ${tempDir}/to
 		fi
-		rm -rf ${TEMP_DIR}
+		rm -rf ${tempDir}
 	fi
 
 	# Unmap disk image
-	if [ ! -z ${LOOP_DEVICE} ]; then
-		losetup --detach ${LOOP_DEVICE}
+	if [ ! -z ${loopDevice} ]; then
+		losetup --detach ${loopDevice}
 	fi
 }
 
-# Initialize the program
+# STEP-1: Initialize the program
+## Set program execution flags
+set -euo pipefail
 
-## Set constants
+## Initialize constants and variables
 readonly COMMAND=$(basename ${0})
+bootSize="+64M"
+rootSize="0"
+homeSize=""
+varSize=""
+deviceName=""
+diskImage=""
+tempDir=""
 
 ## Get arguments
 GetArguments $@
@@ -118,40 +160,66 @@ GetArguments $@
 CheckConditions
 
 ## Check dependencies
-CheckDependencies sgdisk mkfs.fat mkfs.ext4 losetup
-
-## Set program execution flags
-set -euo pipefail
+CheckDependencies rsync sfdisk sgdisk mkfs.fat mkfs.ext4 losetup
 
 ## Intercept interruptions
 trap Cleanup SIGHUP SIGINT SIGQUIT SIGABRT SIGTERM
 
-# STEP-1: Prepare the GPT device
+# STEP-2: Prepare the GPT device
 ## unmount the partitions of the specified device, if any
 for mp in ${mountpoints}; do
 	umount ${mp}
 done
 
 ## Remove previous content
-echo " > Erasing device ${DEVICE_NAME}..."
-sgdisk --zap-all ${DEVICE_NAME} 1>/dev/null
+echo " > Erasing device ${deviceName}..."
+sgdisk --zap-all ${deviceName} 1>/dev/null
 
-## Create the partitions
-echo " > Creating partitions on ${DEVICE_NAME}..."
+## Create and format the partitions
+echo " > Creating and formatting partition boot on ${deviceName}1..."
 sgdisk \
-	--new=0:0:+64M \
+	--new=0:0:${bootSize} \
 	--typecode=0:0700 \
 	--change-name=0:boot \
-	${DEVICE_NAME} 1>/dev/null 2>&1
+	${deviceName} 1>/dev/null 2>&1
+mkfs.fat -F 32 -n BOOT ${deviceName}1 1>/dev/null 2>&1
+
+echo " > Creating and formatting partition root on ${deviceName}2..."
 sgdisk \
-	--new=0:0:0 \
+	--new=0:0:${rootSize} \
 	--typecode=0:8300 \
 	--change-name=0:root \
-	${DEVICE_NAME} 1>/dev/null 2>&1
+	${deviceName} 1>/dev/null 2>&1
+mkfs.ext4 -F -L root ${deviceName}2 1>/dev/null 2>&1
+
+if [ -n "${homeSize}" ]; then
+	echo " > Creating and formatting partition home on ${deviceName}3..."
+	sgdisk \
+		--new=0:0:${homeSize} \
+		--typecode=0:8300 \
+		--change-name=0:home \
+		${deviceName} 1>/dev/null 2>&1
+	mkfs.ext4 -F -L home ${deviceName}3 1>/dev/null 2>&1
+fi
+
+if [ -n "${varSize}" ]; then
+	if [ -n "${homeSize}" ]; then
+	  varPart=4
+	else
+		varPart=3
+	fi
+	echo " > Creating and formatting partition var on ${deviceName}${varPart}..."
+	sgdisk \
+		--new=0:0:${varSize} \
+		--typecode=0:8300 \
+		--change-name=0:var \
+		${deviceName} 1>/dev/null 2>&1
+		mkfs.ext4 -F -L var ${deviceName}${varPart} 1>/dev/null 2>&1
+fi
 
 ## Create an hybrid MBR with partition type "0c" so that bootloader finds it
 echo " > Adding hybrid MBR table..."
-cat << EOF | gdisk ${DEVICE_NAME} 1>/dev/null
+cat << EOF | gdisk ${deviceName} 1>/dev/null
 r
 h
 1
@@ -164,52 +232,89 @@ w
 Y
 EOF
 
-## Format the partitions
-echo " > Creating the file systems..."
-mkfs.fat -F 32 -n BOOT ${DEVICE_NAME}1 1>/dev/null 2>&1
-mkfs.ext4 -F -L root ${DEVICE_NAME}2 1>/dev/null 2>&1
-
-# STEP-2: Copy the content of the disk image to the GPT device
+# STEP-3: Copy the content of the disk image to the GPT device
 
 ## Map the disk image to a loop device
-LOOP_DEVICE=$(losetup --find --partscan --show ${DISK_IMAGE})
+loopDevice=$(losetup --find --partscan --show ${diskImage})
 
 ## Create a temporary directory structure
-TEMP_DIR=$(mktemp --directory)
-mkdir ${TEMP_DIR}/from
-mkdir ${TEMP_DIR}/to
+tempDir=$(mktemp --directory)
+mkdir ${tempDir}/from
+mkdir ${tempDir}/to
 
 ## Copy boot partition
-mount --read-only ${LOOP_DEVICE}p1 ${TEMP_DIR}/from
-mount ${DEVICE_NAME}1 ${TEMP_DIR}/to
+mount --read-only ${loopDevice}p1 ${tempDir}/from
+mount ${deviceName}1 ${tempDir}/to
 
 echo " > Copying boot-partition files..."
-cp --archive ${TEMP_DIR}/from/* ${TEMP_DIR}/to
+rsync --archive ${tempDir}/from/* ${tempDir}/to
 echo " > Adjusting file /boot/cmdline.txt..."
 sed \
 	-e 's: init=[[:graph:]]*::' \
 	-e 's: fsck.repair=yes::' \
 	-e 's: quiet::' \
 	-e 's:root=PARTUUID=[0-9,a-f,\-]*:root=PARTLABEL=root:' \
-	-i ${TEMP_DIR}/to/cmdline.txt
+	-i ${tempDir}/to/cmdline.txt
 
-umount ${LOOP_DEVICE}p1
-umount ${DEVICE_NAME}1
+umount ${loopDevice}p1
+umount ${deviceName}1
 
 ## Copy root partition
-mount --read-only ${LOOP_DEVICE}p2 ${TEMP_DIR}/from
-mount ${DEVICE_NAME}2 ${TEMP_DIR}/to
+mount --read-only ${loopDevice}p2 ${tempDir}/from
+mount ${deviceName}2 ${tempDir}/to
 
 echo " > Copying root-partition files..."
-cp --archive ${TEMP_DIR}/from/* ${TEMP_DIR}/to
+excludeDirs=""
+if [ -n "${homeSize}" ]; then
+	excludeDirs="--exclude='${tempDir}/from/home' ${excludeDirs}"
+fi
+if [ -n "${varSize}" ]; then
+	excludeDirs="--exclude='${tempDir}/from/var' ${excludeDirs}"
+fi
+rsync --archive ${excludeDirs} ${tempDir}/from/ ${tempDir}/to
+
 echo " > Adjusting file /etc/fstab..."
 sed \
 	-e 's:^PARTUUID=.*/boot:PARTLABEL=boot \t/boot:' \
 	-e 's:^PARTUUID=.*/[[:blank:]]:PARTLABEL=root \t/:' \
-	-i ${TEMP_DIR}/to/etc/fstab
+	-i ${tempDir}/to/etc/fstab
+if [ -n "${homeSize}" ]; then
+	echo \
+		"PARTLABEL=home  /home          ext4    defaults,noatime  0       1" \
+		>> ${tempDir}/to/etc/fstab
+fi
+if [ -n "${varSize}" ]; then
+	echo \
+		"PARTLABEL=var   /var           ext4    defaults,noatime  0       1" \
+		>> ${tempDir}/to/etc/fstab
+fi
 
-umount ${LOOP_DEVICE}p2
-umount ${DEVICE_NAME}2
+umount ${loopDevice}p2
+umount ${deviceName}2
+
+## Copy home partition
+if [ -n "${homeSize}" ]; then
+	mount --read-only ${loopDevice}p2 ${tempDir}/from
+	mount ${deviceName}3 ${tempDir}/to
+
+	echo " > Copying home-partition files"
+	rsync --archive ${tempDir}/from/home/ ${tempDir}/to
+
+	umount ${loopDevice}p2
+	umount ${deviceName}3
+fi
+
+## Copy var partition
+if [ -n "${varSize}" ]; then
+	mount --read-only ${loopDevice}p2 ${tempDir}/from
+	mount ${deviceName}${varPart} ${tempDir}/to
+
+	echo " > Copying var-partition files"
+	rsync --archive ${tempDir}/from/var/ ${tempDir}/to
+
+	umount ${loopDevice}p2
+	umount ${deviceName}${varPart}
+fi
 
 # Clean up and exit
 Cleanup
