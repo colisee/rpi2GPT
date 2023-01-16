@@ -25,21 +25,15 @@ DisplayUsage() {
 	You can use the suffix K,M,G,T when specifying partition sizes
 
 	Usage:
-	${COMMAND} arguments
+	${COMMAND} [options] --image <image_file> --device <device_name>
 
-	Mandatory arguments:
-		-d --device <device_name>
-    -i --image <disk_image>
-
-	Optional arguments:
-		--boot-size <size_of_boot_partition> by default 64M
-		--root-size <size_of_root_partition> by default the remaining space
-		--home-size <size_of_home_partition> by default none
-		--var-size  <size_of_var_partition>  by default none
+	Options:
+	--boot-size	<size_of_boot_partition>	by default 64M
+	--root-size	<size_of_root_partition>	by default the remaining disk space
+	--home-size	<size_of_home_partition>	by default none
+	--var-size	<size_of_var_partition>		by default none
 
 	EOF
-
-	exit 0
 }
 
 SetSize() {
