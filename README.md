@@ -2,13 +2,13 @@
 Flash a raspios disk image to a GPT-partitioned device
 
 ## Usage:
-sudo rpi-img2GPT [options] --image <image_file> --device <device_name>
+    sudo rpi-img2GPT [options] --image <image_file> --device <device_name>
 
-## Options:
---boot-size <size>
---root-size <size>
---home-size <size>
---root-size <size>
+    Options:
+    --boot-size <size>
+    --root-size <size>
+    --home-size <size>
+    --root-size <size>
 
 Notes:
 - You can use the suffix (K, M, G, T) as in 64G
