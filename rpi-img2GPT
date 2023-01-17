@@ -67,13 +67,13 @@ CheckConditions() {
 	# Check that the program is run by root
 	if [ $(id -u) -ne 0 ]; then
 		echo "${COMMAND} must be run as root" >&2
-		exit 1
+		exit 2
 	fi
 
-	# Check that the device exists
+	# Check the device
 	if [ -z "${deviceName}" ]; then
 		echo "Device name not specified" >&2
-		exit 2
+		exit 3
 	fi
 
 	mountpoints=$(lsblk \
@@ -84,7 +84,7 @@ CheckConditions() {
 		exit 3
 	fi
 
-	# Check that the disk image exists
+	# Check the disk image
 	if [ -z "${diskImage}" ]; then
 		echo "Disk image not specified" >&2
 		exit 4
@@ -92,14 +92,14 @@ CheckConditions() {
 
 	if [ ! -f ${diskImage} ]; then
 		echo "Disk image ${diskImage} not found" >&2
-		exit 5
+		exit 4
 	fi
 
 	# Check if --root-size becomes a mandatory argument
 	if [ "${rootSize}" = "0" ] && \
 	   ([ -n "${homeSize}" ] || [ -n "${varSize}" ]); then
 		echo "--root-size must be specified" >&2
-		exit 6
+		exit 7
 	fi
 }
 
@@ -108,7 +108,7 @@ CheckDependencies() {
 	while [ "$#" -gt 0 ] ; do
 		if [ ! $(which "${1}") ]; then
 			echo "Command ${1} not found" >&2
-			exit 6
+			exit 10
 		fi
 		shift
 	done
