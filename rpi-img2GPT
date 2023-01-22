@@ -25,13 +25,27 @@ DisplayUsage() {
 	You can use the suffix K,M,G,T when specifying partition sizes
 
 	Usage:
-	${COMMAND} [options] --image <image_file> --device <device_name>
+	${COMMAND} [arguments]
 
-	Options:
-	--boot-size	<size_of_boot_partition>	by default 64M
-	--root-size	<size_of_root_partition>	by default the remaining disk space
-	--home-size	<size_of_home_partition>	by default none
-	--var-size	<size_of_var_partition>		by default none
+	Required arguments:
+	-d device, --device=device
+	             Specify the name of the device to be partitioned
+	-i disk-image, --image=disk-image
+	             Specify the name the source disk image
+
+	Optional arguments:
+	--boot-size=size-of-boot-partition
+	             Specif the size of the boot partition
+	             By default 64M
+	--root-size=size-of-root-partition
+	             Specify the size of the root partition
+	             By default the remaining disk space
+	--home-size=size-of-home-partition
+	             Specify the size of the home partition
+	             By default, there is no home partition
+	--var-size=size-of-var-partition
+	             Specify the size of the var partition
+	             By default, there is no var partition
 
 	EOF
 }
@@ -49,14 +63,38 @@ GetArguments() {
 
 	while [ "$#" -gt 0 ] ; do
 		case "${1}" in
-			-h|--help) DisplayUsage; exit 0 ;;
-			-d|--device) deviceName="${2}" ; shift ;;
-			-i|--image) diskImage="${2}" ; shift ;;
-			--boot-size) bootSize=$(SetSize "${2}") ; shift ;;
-			--root-size) rootSize=$(SetSize "${2}") ; shift ;;
-			--home-size) homeSize=$(SetSize "${2}") ; shift ;;
-			--var-size) varSize=$(SetSize "${2}") ; shift ;;
-			*) DisplayUsage; exit 1 ;;
+			-h|--help)
+				DisplayUsage;
+				exit 0
+				;;
+			-d*|--device*)
+				if [ "${1}" = "${1#*=}" ]; then shift; fi
+				deviceName="${1#*=}"
+				;;
+			-i*|--image*)
+				if [ "${1}" = "${1#*=}" ]; then shift; fi
+				diskImage="${1#*=}"
+				;;
+			--boot-size*)
+				if [ "${1}" = "${1#*=}" ]; then shift; fi
+				bootSize=$(SetSize "${1#*=}")
+				;;
+			--root-size*)
+				if [ "${1}" = "${1#*=}" ]; then shift; fi
+				rootSize=$(SetSize "${1#*=}")
+				;;
+			--home-size*)
+				if [ "${1}" = "${1#*=}" ]; then shift; fi
+				homeSize=$(SetSize "${1#*=}")
+				;;
+			--var-size*)
+				if [ "${1}" = "${1#*=}" ]; then shift; fi
+				varSize=$(SetSize "${1#*=}")
+				;;
+			*)
+				DisplayUsage
+				exit 1
+				;;
 		esac
 		shift
 	done
