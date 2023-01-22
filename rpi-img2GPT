@@ -46,6 +46,8 @@ DisplayUsage() {
 	--var-size=size-of-var-partition
 	             Specify the size of the var partition
 	             By default, there is no var partition
+	--enable-ssh
+	             Activate ssh
 
 	EOF
 }
@@ -90,6 +92,9 @@ GetArguments() {
 			--var-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
 				varSize=$(SetSize "${1#*=}")
+				;;
+			--enable-ssh)
+				enableSSH="1"
 				;;
 			*)
 				DisplayUsage
@@ -184,6 +189,7 @@ varSize=""
 deviceName=""
 diskImage=""
 tempDir=""
+enableSSH="0"
 
 ## Get arguments
 GetArguments $@
@@ -287,6 +293,11 @@ sed \
 	-e 's: quiet::' \
 	-e 's:root=PARTUUID=[0-9,a-f,\-]*:root=PARTLABEL=root:' \
 	-i ${tempDir}/to/cmdline.txt
+
+if [ "${enableSSH}" = "1" ]; then
+	echo " > Enabling ssh..."
+	touch ${tempDir}/to/ssh
+fi
 
 umount ${loopDevice}p1
 umount ${deviceName}1
