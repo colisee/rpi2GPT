@@ -22,7 +22,9 @@ DisplayUsage() {
 	${COMMAND} flashes a raspberrypi disk image to a GPT-partitioned device
 	and performs a few adjustments to allow the raspberry-pi to boot directly
 	from the device.
-	You can use the suffix K,M,G,T when specifying partition sizes
+	When specifying partition sizes:
+	  - you can use the suffix K,M,G,T
+	  - the special value 0 to indicate the remaining disk space
 
 	Usage:
 	${COMMAND} [arguments]
@@ -39,7 +41,7 @@ DisplayUsage() {
 	             By default 64M
 	--root-size=size-of-root-partition
 	             Specify the size of the root partition
-	             By default the remaining disk space
+	             By default 0 (ie. the remaining disk space)
 	--home-size=size-of-home-partition
 	             Specify the size of the home partition
 	             By default, there is no home partition
@@ -119,11 +121,8 @@ CheckConditions() {
 		exit 3
 	fi
 
-	mountpoints=$(lsblk \
-		--noheadings --list -o MOUNTPOINT ${deviceName} 2>/dev/null \
-	)
-	if [ ${?} -ne 0 ]; then
-		echo "Device ${deviceName} not found" >&2
+	if [ ! -b "${deviceName}" ]; then
+		echo "Device ${deviceName} not a block device" >&2
 		exit 3
 	fi
 
@@ -138,11 +137,12 @@ CheckConditions() {
 		exit 4
 	fi
 
-	# Check if --root-size becomes a mandatory argument
-	if [ "${rootSize}" = "0" ] && \
-	   ([ -n "${homeSize}" ] || [ -n "${varSize}" ]); then
-		echo "--root-size must be specified" >&2
-		exit 7
+	# Check that there are no more than 1 partition with value 0
+	partitions0=$(echo -n "${bootSize}-${rootSize}-${homeSize}-${varSize}" | \
+		sed -e "s/-*0-*/@/g" -e "s/[^@]//g" | wc --chars)
+	if [ ${partitions0} -gt 1 ]; then
+		echo "Only 1 partition can take the remaining disk" >&2
+		exit 5
 	fi
 }
 
@@ -205,6 +205,8 @@ trap Cleanup SIGHUP SIGINT SIGQUIT SIGABRT SIGTERM
 
 # STEP-2: Prepare the GPT device
 ## unmount the partitions of the specified device, if any
+mountpoints=$(lsblk \
+	--noheadings --list --output MOUNTPOINT ${deviceName} 2>/dev/null)
 for mp in ${mountpoints}; do
 	umount ${mp}
 done
