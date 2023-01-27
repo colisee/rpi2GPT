@@ -162,7 +162,7 @@ Cleanup() {
 	echo " > Cleaning up..."
 
 	# Unmount partitions and delete the temporary directory
-	if [ -z "${tempDir}" ] && [ -d ${tempDir} ]; then
+	if [ -n "${tempDir}" ] && [ -d ${tempDir} ]; then
 		if (mount | grep --silent ${tempDir}); then
 			umount ${tempDir}/from
 			umount ${tempDir}/to
@@ -189,6 +189,7 @@ varSize=""
 deviceName=""
 diskImage=""
 tempDir=""
+loopDevice=""
 enableSSH="0"
 
 ## Get arguments
