@@ -121,7 +121,7 @@ CheckConditions() {
 		exit 3
 	fi
 
-	if [ ! -b "${deviceName}" ]; then
+	if ! [ -b "${deviceName}" ]; then
 		echo "Device ${deviceName} not a block device" >&2
 		exit 3
 	fi
@@ -132,7 +132,7 @@ CheckConditions() {
 		exit 4
 	fi
 
-	if [ ! -f ${diskImage} ]; then
+	if ! [ -f ${diskImage} ]; then
 		echo "Disk image ${diskImage} not found" >&2
 		exit 4
 	fi
@@ -149,7 +149,7 @@ CheckConditions() {
 CheckDependencies() {
 
 	while [ "$#" -gt 0 ] ; do
-		if [ ! $(which "${1}") ]; then
+		if ! [ $(which "${1}") ]; then
 			echo "Command ${1} not found" >&2
 			exit 10
 		fi
@@ -171,7 +171,7 @@ Cleanup() {
 	fi
 
 	# Unmap disk image
-	if [ ! -z ${loopDevice} ]; then
+	if [ -n "${loopDevice}" ]; then
 		losetup --detach ${loopDevice}
 	fi
 }
