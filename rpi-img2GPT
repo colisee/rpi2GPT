@@ -160,10 +160,10 @@ CheckDependencies() {
 Cleanup() {
 
 	echo " > Cleaning up..."
+	sync
 
 	# Unmount partitions and delete the temporary directory
 	if [ -n "${tempDir}" ] && [ -d ${tempDir} ]; then
-		sleep 5s
 		while (mount | grep --silent ${tempDir}/from); do
 			umount ${tempDir}/from
 		done
@@ -182,6 +182,9 @@ Cleanup() {
 # STEP-1: Initialize the program
 ## Set program execution flags
 set -euo pipefail
+
+## Intercept interruptions
+trap Cleanup SIGHUP SIGINT SIGQUIT SIGABRT SIGTERM
 
 ## Initialize constants and variables
 readonly COMMAND=$(basename ${0})
@@ -203,9 +206,6 @@ CheckConditions
 
 ## Check dependencies
 CheckDependencies rsync sfdisk sgdisk mkfs.fat mkfs.ext4 losetup
-
-## Intercept interruptions
-trap Cleanup SIGHUP SIGINT SIGQUIT SIGABRT SIGTERM
 
 # STEP-2: Prepare the GPT device
 ## unmount the partitions of the specified device, if any
