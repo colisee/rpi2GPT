@@ -179,6 +179,28 @@ SetPartition() {
 	fi
 }
 
+
+CopyPartition() {
+
+	local deviceFrom="${1}"
+	local deviceTo="${2}"
+	local excludes="${3}"
+	local dirFrom="${4}"
+
+	sync
+	if (mount | grep --silent ${tempDir}/from); then
+		umount ${tempDir}/from
+	fi
+	if (mount | grep --silent ${tempDir}/to); then
+		umount ${tempDir}/to
+	fi
+	mount --read-only ${deviceFrom} ${tempDir}/from
+	mount ${deviceTo} ${tempDir}/to
+
+	echo " > Copying files to ${deviceTo}..."
+	rsync --archive ${excludes} ${tempDir}/from${dirFrom} ${tempDir}/to
+}
+
 Cleanup() {
 
 	echo " > Cleaning up..."
@@ -281,12 +303,8 @@ tempDir=$(mktemp --directory)
 mkdir ${tempDir}/from
 mkdir ${tempDir}/to
 
-## Copy boot partition
-mount --read-only ${loopDevice}p1 ${tempDir}/from
-mount ${deviceName}1 ${tempDir}/to
-
-echo " > Copying boot-partition files..."
-rsync --archive ${tempDir}/from/* ${tempDir}/to
+## Copy and ajust boot files
+CopyPartition "${loopDevice}p1" "${deviceName}1" "" "/"
 echo " > Adjusting file /boot/cmdline.txt..."
 sed \
 	-e 's: init=[[:graph:]]*::' \
@@ -300,23 +318,14 @@ if [ "${enableSSH}" = "1" ]; then
 	touch ${tempDir}/to/ssh
 fi
 
-umount ${loopDevice}p1
-umount ${deviceName}1
-
-## Copy root partition
-mount --read-only ${loopDevice}p2 ${tempDir}/from
-mount ${deviceName}2 ${tempDir}/to
-
-echo " > Copying root-partition files..."
-excludeDirs=""
+## Copy and asjust root files
 if [ -n "${homeSize}" ]; then
-	excludeDirs="--exclude='${tempDir}/from/home' ${excludeDirs}"
+	excludeDirs="--exclude=${tempDir}/from/home"
 fi
 if [ -n "${varSize}" ]; then
-	excludeDirs="--exclude='${tempDir}/from/var' ${excludeDirs}"
+	excludeDirs+=" --exclude=${tempDir}/from/var"
 fi
-rsync --archive ${excludeDirs} ${tempDir}/from/ ${tempDir}/to
-
+CopyPartition "${loopDevice}p2" "${deviceName}2" "${excludeDirs}" "/"
 echo " > Adjusting file /etc/fstab..."
 sed \
 	-e 's:^PARTUUID=.*/boot:PARTLABEL=boot \t/boot:' \
@@ -333,31 +342,14 @@ if [ -n "${varSize}" ]; then
 		>> ${tempDir}/to/etc/fstab
 fi
 
-umount ${loopDevice}p2
-umount ${deviceName}2
-
-## Copy home partition
+## Copy home files
 if [ -n "${homeSize}" ]; then
-	mount --read-only ${loopDevice}p2 ${tempDir}/from
-	mount ${deviceName}3 ${tempDir}/to
-
-	echo " > Copying home-partition files"
-	rsync --archive ${tempDir}/from/home/ ${tempDir}/to
-
-	umount ${loopDevice}p2
-	umount ${deviceName}3
+	CopyPartition "${loopDevice}p2" "${deviceName}3" "" "/home/"
 fi
 
-## Copy var partition
+## Copy var files
 if [ -n "${varSize}" ]; then
-	mount --read-only ${loopDevice}p2 ${tempDir}/from
-	mount ${deviceName}${varPart} ${tempDir}/to
-
-	echo " > Copying var-partition files"
-	rsync --archive ${tempDir}/from/var/ ${tempDir}/to
-
-	umount ${loopDevice}p2
-	umount ${deviceName}${varPart}
+	CopyPartition "${loopDevice}p2" "${deviceName}${varPart}" "" "/var/"
 fi
 
 # Clean up and exit
