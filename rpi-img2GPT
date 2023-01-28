@@ -163,10 +163,13 @@ Cleanup() {
 
 	# Unmount partitions and delete the temporary directory
 	if [ -n "${tempDir}" ] && [ -d ${tempDir} ]; then
-		if (mount | grep --silent ${tempDir}); then
+		sleep 5s
+		while (mount | grep --silent ${tempDir}/from); do
 			umount ${tempDir}/from
+		done
+		while (mount | grep --silent ${tempDir}/to); do
 			umount ${tempDir}/to
-		fi
+		done
 		rm -rf ${tempDir}
 	fi
 
