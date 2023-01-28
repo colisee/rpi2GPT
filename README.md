@@ -28,7 +28,7 @@ sudo rpi-img2GPT \
 	--root-size 64G \
 	--home-size 16G \
 	--var-size 0 \
-  --enable-ssh
+	--enable-ssh
 ```
 
 ## What the command does
@@ -42,4 +42,4 @@ This command will:
   - Define the new root mount (switching to PARTLABEL from PARTUUID)
   - Remove the init and fsck arguments
 - Change the file /etc/fstab to update the mount points
-- Add an empty file ssh to /boot if --enable-ssh was specified
+- Add an empty file /boot/ssh if the argument --enable-ssh was specified
