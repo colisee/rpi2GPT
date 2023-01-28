@@ -157,6 +157,28 @@ CheckDependencies() {
 	done
 }
 
+SetPartition() {
+
+	local size="${1}"
+	local type="${2}"
+	local name="${3}"
+	local numPart="${4}"
+
+	echo " > Creating and formatting ${name} on ${deviceName}${numPart}..."
+
+	sgdisk \
+		--new=0:0:${size} \
+		--typecode=0:${type} \
+		--change-name=0:${name} \
+		${deviceName} 1>/dev/null 2>&1
+
+	if [ "${type}" = "0700" ]; then
+		mkfs.fat -F 32 -n ${name} ${deviceName}${numPart} 1>/dev/null 2>&1
+	else
+		mkfs.ext4 -F -L ${name} ${deviceName}${numPart} 1>/dev/null 2>&1
+	fi
+}
+
 Cleanup() {
 
 	echo " > Cleaning up..."
@@ -220,45 +242,18 @@ echo " > Erasing device ${deviceName}..."
 sgdisk --zap-all ${deviceName} 1>/dev/null
 
 ## Create and format the partitions
-echo " > Creating and formatting partition boot on ${deviceName}1..."
-sgdisk \
-	--new=0:0:${bootSize} \
-	--typecode=0:0700 \
-	--change-name=0:boot \
-	${deviceName} 1>/dev/null 2>&1
-mkfs.fat -F 32 -n BOOT ${deviceName}1 1>/dev/null 2>&1
-
-echo " > Creating and formatting partition root on ${deviceName}2..."
-sgdisk \
-	--new=0:0:${rootSize} \
-	--typecode=0:8300 \
-	--change-name=0:root \
-	${deviceName} 1>/dev/null 2>&1
-mkfs.ext4 -F -L root ${deviceName}2 1>/dev/null 2>&1
-
+SetPartition ${bootSize} "0700" "boot" 1
+SetPartition ${rootSize} "8300" "root" 2
 if [ -n "${homeSize}" ]; then
-	echo " > Creating and formatting partition home on ${deviceName}3..."
-	sgdisk \
-		--new=0:0:${homeSize} \
-		--typecode=0:8300 \
-		--change-name=0:home \
-		${deviceName} 1>/dev/null 2>&1
-	mkfs.ext4 -F -L home ${deviceName}3 1>/dev/null 2>&1
+	SetPartition ${homeSize} "8300" "home" 3
 fi
-
 if [ -n "${varSize}" ]; then
 	if [ -n "${homeSize}" ]; then
-	  varPart=4
+		varPart=4
 	else
 		varPart=3
 	fi
-	echo " > Creating and formatting partition var on ${deviceName}${varPart}..."
-	sgdisk \
-		--new=0:0:${varSize} \
-		--typecode=0:8300 \
-		--change-name=0:var \
-		${deviceName} 1>/dev/null 2>&1
-		mkfs.ext4 -F -L var ${deviceName}${varPart} 1>/dev/null 2>&1
+	SetPartition ${varSize} "8300" "var" ${varPart}
 fi
 
 ## Create an hybrid MBR with partition type "0c" so that bootloader finds it
