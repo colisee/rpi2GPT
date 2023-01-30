@@ -329,7 +329,7 @@ sed \
 	-i ${tempDir}/to/cmdline.txt
 
 if [ "${enableSSH}" = "1" ]; then
-	echo " > Enabling ssh..."
+	ShowMsg " > Enabling ssh..."
 	touch ${tempDir}/to/ssh
 fi
 

@@ -6,11 +6,12 @@ Flash a raspios disk image to a GPT-partitioned device
 sudo rpi-img2GPT [options] --image=image-file --device=device-name
 
 Options:
-  --boot-size=size
-  --root-size=size
-  --home-size=size
-  --root-size=size
+  --boot-size=size-of-boot-partition
+  --root-size=size-of-root-partition
+  --home-size=size-of-home-partition
+  --root-size=size-of-var-partition
   --enable-ssh
+  --quiet
 ```
 
 Notes:
