@@ -201,6 +201,24 @@ CopyPartition() {
 	rsync --archive ${excludes} ${tempDir}/from${dirFrom} ${tempDir}/to
 }
 
+AddHybridMBR() {
+
+	echo " > Adding hybrid MBR table..."
+	cat <<- EOF | gdisk ${deviceName} 1>/dev/null
+		r
+		h
+		1
+		N
+		0c
+		N
+		Y
+		EE
+		w
+		Y
+		EOF
+
+}
+
 Cleanup() {
 
 	echo " > Cleaning up..."
@@ -278,21 +296,6 @@ if [ -n "${varSize}" ]; then
 	SetPartition ${varSize} "8300" "var" ${varPart}
 fi
 
-## Create an hybrid MBR with partition type "0c" so that bootloader finds it
-echo " > Adding hybrid MBR table..."
-cat << EOF | gdisk ${deviceName} 1>/dev/null
-r
-h
-1
-N
-0c
-N
-Y
-EE
-w
-Y
-EOF
-
 # STEP-3: Copy the content of the disk image to the GPT device
 
 ## Map the disk image to a loop device
@@ -351,6 +354,9 @@ fi
 if [ -n "${varSize}" ]; then
 	CopyPartition "${loopDevice}p2" "${deviceName}${varPart}" "" "/var/"
 fi
+
+## Create an hybrid MBR with partition type "0c" so that bootloader finds it
+AddHybridMBR
 
 # Clean up and exit
 Cleanup
