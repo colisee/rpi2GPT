@@ -50,8 +50,17 @@ DisplayUsage() {
 	             By default, there is no var partition
 	--enable-ssh
 	             Activate ssh
+	--quiet
+	             Do not print status messages
 
 	EOF
+}
+
+ShowMsg() {
+
+	if [ "${beQuiet:=0}" = "0" ]; then
+		echo "${1}"
+	fi
 }
 
 SetSize() {
@@ -97,6 +106,9 @@ GetArguments() {
 				;;
 			--enable-ssh)
 				enableSSH="1"
+				;;
+			--quiet)
+				beQuiet="1"
 				;;
 			*)
 				DisplayUsage
@@ -164,7 +176,7 @@ SetPartition() {
 	local name="${3}"
 	local numPart="${4}"
 
-	echo " > Creating and formatting ${name} on ${deviceName}${numPart}..."
+	ShowMsg " > Creating and formatting ${name} on ${deviceName}${numPart}..."
 
 	sgdisk \
 		--new=0:0:${size} \
@@ -197,13 +209,13 @@ CopyPartition() {
 	mount --read-only ${deviceFrom} ${tempDir}/from
 	mount ${deviceTo} ${tempDir}/to
 
-	echo " > Copying files to ${deviceTo}..."
+	ShowMsg " > Copying files to ${deviceTo}..."
 	rsync --archive ${excludes} ${tempDir}/from${dirFrom} ${tempDir}/to
 }
 
 AddHybridMBR() {
 
-	echo " > Adding hybrid MBR table..."
+	ShowMsg " > Adding hybrid MBR table..."
 	cat <<- EOF | gdisk ${deviceName} 1>/dev/null
 		r
 		h
@@ -221,7 +233,7 @@ AddHybridMBR() {
 
 Cleanup() {
 
-	echo " > Cleaning up..."
+	ShowMsg " > Cleaning up..."
 	sync
 
 	# Unmount partitions and delete the temporary directory
@@ -278,7 +290,7 @@ for mp in ${mountpoints}; do
 done
 
 ## Remove previous content
-echo " > Erasing device ${deviceName}..."
+ShowMsg " > Erasing device ${deviceName}..."
 sgdisk --zap-all ${deviceName} 1>/dev/null
 
 ## Create and format the partitions
@@ -308,7 +320,7 @@ mkdir ${tempDir}/to
 
 ## Copy and ajust boot files
 CopyPartition "${loopDevice}p1" "${deviceName}1" "" "/"
-echo " > Adjusting file /boot/cmdline.txt..."
+ShowMsg " > Adjusting file /boot/cmdline.txt..."
 sed \
 	-e 's: init=[[:graph:]]*::' \
 	-e 's: fsck.repair=yes::' \
@@ -329,7 +341,7 @@ if [ -n "${varSize}" ]; then
 	excludeDirs+=" --exclude=${tempDir}/from/var"
 fi
 CopyPartition "${loopDevice}p2" "${deviceName}2" "${excludeDirs}" "/"
-echo " > Adjusting file /etc/fstab..."
+ShowMsg " > Adjusting file /etc/fstab..."
 sed \
 	-e 's:^PARTUUID=.*/boot:PARTLABEL=boot \t/boot:' \
 	-e 's:^PARTUUID=.*/[[:blank:]]:PARTLABEL=root \t/:' \
@@ -360,5 +372,5 @@ AddHybridMBR
 
 # Clean up and exit
 Cleanup
-echo "Operation completed"
+ShowMsg "Operation completed"
 exit 0
