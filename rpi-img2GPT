@@ -99,10 +99,12 @@ GetArguments() {
 			--home-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
 				homeSize=$(SetSize "${1#*=}")
+				excludeDirs+=" --exclude=/home/"
 				;;
 			--var-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
 				varSize=$(SetSize "${1#*=}")
+				excludeDirs+=" --exclude=/var/"
 				;;
 			--enable-ssh)
 				enableSSH="1"
@@ -333,13 +335,6 @@ if [ "${enableSSH}" = "1" ]; then
 	touch ${tempDir}/to/ssh
 fi
 
-## Copy and asjust root files
-if [ -n "${homeSize}" ]; then
-	excludeDirs="--exclude=${tempDir}/from/home"
-fi
-if [ -n "${varSize}" ]; then
-	excludeDirs+=" --exclude=${tempDir}/from/var"
-fi
 CopyPartition "${loopDevice}p2" "${deviceName}2" "${excludeDirs}" "/"
 ShowMsg " > Adjusting file /etc/fstab..."
 sed \
