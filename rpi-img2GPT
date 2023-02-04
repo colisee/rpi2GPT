@@ -306,10 +306,10 @@ AdjustRootFiles() {
 
 # MAIN
 ## Set program execution flags
-set -euo pipefail
+set -Eeuo pipefail
 
 ## Intercept interruptions
-trap Cleanup SIGHUP SIGINT SIGQUIT SIGABRT SIGTERM
+trap Cleanup ERR HUP INT QUIT ABRT TERM
 
 ## Initialize constants and variables
 readonly COMMAND=$(basename ${0})
