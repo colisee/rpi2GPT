@@ -90,21 +90,31 @@ GetArguments() {
 				;;
 			--boot-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
-				bootSize=$(SetSize "${1#*=}")
+				partSize[1]=$(SetSize "${1#*=}")
 				;;
 			--root-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
-				rootSize=$(SetSize "${1#*=}")
+				partSize[2]=$(SetSize "${1#*=}")
 				;;
 			--home-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
-				homeSize=$(SetSize "${1#*=}")
-				excludeDirs+=" --exclude=/home/"
+				partSize+=("$(SetSize "${1#*=}")")
+				partName+=("home")
+				partType+=("8300")
+				partDevL+=("p2")
+				partExcl+=("")
+				partRoot+=("/home/")
+				partExcl[2]+=" --exclude=/home/"
 				;;
 			--var-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
-				varSize=$(SetSize "${1#*=}")
-				excludeDirs+=" --exclude=/var/"
+				partSize+=("$(SetSize "${1#*=}")")
+				partName+=("var")
+				partType+=("8300")
+				partDevL+=("p2")
+				partExcl+=("")
+				partRoot+=("/var/")
+				partExcl[2]+=" --exclude=/var/"
 				;;
 			--enable-ssh)
 				enableSSH="1"
@@ -152,8 +162,8 @@ CheckConditions() {
 	fi
 
 	# Check that there are no more than 1 partition with value 0
-	partitions0=$(echo -n "${bootSize}-${rootSize}-${homeSize}-${varSize}" | \
-		sed -e "s/-*0-*/@/g" -e "s/[^@]//g" | wc --chars)
+	partitions0=$(echo -n "${partSize[@]}" | \
+		sed -e "s/ *0 */@/g" -e "s/[^@]//g" | wc --chars)
 	if [ ${partitions0} -gt 1 ]; then
 		echo "Only 1 partition can take the remaining disk" >&2
 		exit 5
@@ -201,18 +211,14 @@ CopyPartition() {
 	local excludes="${3}"
 	local dirFrom="${4}"
 
-	sync
-	if (mount | grep --silent ${tempDir}/from); then
-		umount ${tempDir}/from
-	fi
-	if (mount | grep --silent ${tempDir}/to); then
-		umount ${tempDir}/to
-	fi
 	mount --read-only ${deviceFrom} ${tempDir}/from
 	mount ${deviceTo} ${tempDir}/to
 
 	ShowMsg " > Copying files to ${deviceTo}..."
 	rsync --archive ${excludes} ${tempDir}/from${dirFrom} ${tempDir}/to
+	sync
+	umount ${tempDir}/from
+	umount ${tempDir}/to
 }
 
 AddHybridMBR() {
@@ -255,7 +261,50 @@ Cleanup() {
 	fi
 }
 
-# STEP-1: Initialize the program
+AdjustBootFiles() {
+
+	ShowMsg " > Adjusting file /boot/cmdline.txt..."
+	mount "${deviceName}1" "${tempDir}/to"
+	sed \
+		-e 's: init=[[:graph:]]*::' \
+		-e 's: fsck.repair=yes::' \
+		-e 's: quiet::' \
+		-e 's:root=PARTUUID=[0-9,a-f,\-]*:root=PARTLABEL=root:' \
+		-i ${tempDir}/to/cmdline.txt
+
+	if [ "${enableSSH}" = "1" ]; then
+		ShowMsg " > Enabling ssh..."
+		touch ${tempDir}/to/ssh
+	fi
+
+	umount "${tempDir}/to"
+}
+
+AdjustRootFiles() {
+
+	ShowMsg " > Adjusting file /etc/fstab..."
+	mount "${deviceName}2" "${tempDir}/to"
+	sed \
+		-e 's:^PARTUUID=.*/boot:PARTLABEL=boot \t/boot:' \
+		-e 's:^PARTUUID=.*/[[:blank:]]:PARTLABEL=root \t/:' \
+		-i ${tempDir}/to/etc/fstab
+
+	if [ "$(echo -n "${partName[@]}" | grep home)" ]; then
+		echo \
+			"PARTLABEL=home  /home          ext4    defaults,noatime  0       1" \
+			>> ${tempDir}/to/etc/fstab
+	fi
+
+	if [ "$(echo -n "${partName[@]}" | grep var)" ]; then
+		echo \
+			"PARTLABEL=var   /var           ext4    defaults,noatime  0       1" \
+			>> ${tempDir}/to/etc/fstab
+	fi
+
+	umount "${tempDir}/to"
+}
+
+# MAIN
 ## Set program execution flags
 set -euo pipefail
 
@@ -264,15 +313,17 @@ trap Cleanup SIGHUP SIGINT SIGQUIT SIGABRT SIGTERM
 
 ## Initialize constants and variables
 readonly COMMAND=$(basename ${0})
-bootSize="+64M"
-rootSize="0"
-homeSize=""
-varSize=""
 deviceName=""
 diskImage=""
 tempDir=""
 loopDevice=""
 enableSSH="0"
+partName=([1]="boot" [2]="root")
+partType=([1]="0700" [2]="8300")
+partSize=([1]="+64M" [2]="0")
+partDevL=([1]="p1"   [2]="p2")
+partExcl=([1]=""     [2]="")
+partRoot=([1]="/"    [2]="/")
 
 ## Get arguments
 GetArguments $@
@@ -283,7 +334,6 @@ CheckConditions
 ## Check dependencies
 CheckDependencies rsync sfdisk sgdisk mkfs.fat mkfs.ext4 losetup
 
-# STEP-2: Prepare the GPT device
 ## unmount the partitions of the specified device, if any
 mountpoints=$(lsblk \
 	--noheadings --list --output MOUNTPOINT ${deviceName} 2>/dev/null)
@@ -291,76 +341,29 @@ for mp in ${mountpoints}; do
 	umount ${mp}
 done
 
-## Remove previous content
-ShowMsg " > Erasing device ${deviceName}..."
-sgdisk --zap-all ${deviceName} 1>/dev/null
-
-## Create and format the partitions
-SetPartition ${bootSize} "0700" "boot" 1
-SetPartition ${rootSize} "8300" "root" 2
-if [ -n "${homeSize}" ]; then
-	SetPartition ${homeSize} "8300" "home" 3
-fi
-if [ -n "${varSize}" ]; then
-	if [ -n "${homeSize}" ]; then
-		varPart=4
-	else
-		varPart=3
-	fi
-	SetPartition ${varSize} "8300" "var" ${varPart}
-fi
-
-# STEP-3: Copy the content of the disk image to the GPT device
-
-## Map the disk image to a loop device
-loopDevice=$(losetup --find --partscan --show ${diskImage})
-
 ## Create a temporary directory structure
 tempDir=$(mktemp --directory)
 mkdir ${tempDir}/from
 mkdir ${tempDir}/to
 
-## Copy and ajust boot files
-CopyPartition "${loopDevice}p1" "${deviceName}1" "" "/"
-ShowMsg " > Adjusting file /boot/cmdline.txt..."
-sed \
-	-e 's: init=[[:graph:]]*::' \
-	-e 's: fsck.repair=yes::' \
-	-e 's: quiet::' \
-	-e 's:root=PARTUUID=[0-9,a-f,\-]*:root=PARTLABEL=root:' \
-	-i ${tempDir}/to/cmdline.txt
+## Map the disk image to a loop device
+loopDevice=$(losetup --find --partscan --show ${diskImage})
 
-if [ "${enableSSH}" = "1" ]; then
-	ShowMsg " > Enabling ssh..."
-	touch ${tempDir}/to/ssh
-fi
+## Clear the destination device
+ShowMsg " > Erasing device ${deviceName}..."
+sgdisk --zap-all ${deviceName} 1>/dev/null
 
-CopyPartition "${loopDevice}p2" "${deviceName}2" "${excludeDirs}" "/"
-ShowMsg " > Adjusting file /etc/fstab..."
-sed \
-	-e 's:^PARTUUID=.*/boot:PARTLABEL=boot \t/boot:' \
-	-e 's:^PARTUUID=.*/[[:blank:]]:PARTLABEL=root \t/:' \
-	-i ${tempDir}/to/etc/fstab
-if [ -n "${homeSize}" ]; then
-	echo \
-		"PARTLABEL=home  /home          ext4    defaults,noatime  0       1" \
-		>> ${tempDir}/to/etc/fstab
-fi
-if [ -n "${varSize}" ]; then
-	echo \
-		"PARTLABEL=var   /var           ext4    defaults,noatime  0       1" \
-		>> ${tempDir}/to/etc/fstab
-fi
+## Perform smart copy
+for i in "${!partSize[@]}"; do
+	SetPartition "${partSize[i]}" "${partType[i]}" "${partName[i]}" "${i}"
+	CopyPartition \
+		"${loopDevice}${partDevL[i]}" "${deviceName}${i}" \
+		"${partExcl[i]}" "${partRoot[i]}"
+done
 
-## Copy home files
-if [ -n "${homeSize}" ]; then
-	CopyPartition "${loopDevice}p2" "${deviceName}3" "" "/home/"
-fi
-
-## Copy var files
-if [ -n "${varSize}" ]; then
-	CopyPartition "${loopDevice}p2" "${deviceName}${varPart}" "" "/var/"
-fi
+## Adjust files
+AdjustBootFiles
+AdjustRootFiles
 
 ## Create an hybrid MBR with partition type "0c" so that bootloader finds it
 AddHybridMBR
