@@ -24,7 +24,7 @@ the remaining device space
 ```
 sudo rpi-img2GPT \
 	--image 2021-05-07-raspios-buster-armhf-lite.img \
-	--device /dev/sdc
+	--device /dev/sdc \
 	--boot-size 128M \
 	--root-size 64G \
 	--home-size 16G \
