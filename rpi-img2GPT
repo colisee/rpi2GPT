@@ -63,15 +63,6 @@ ShowMsg() {
 	fi
 }
 
-SetSize() {
-
-	if [ "${1}" = "0" ]; then
-		echo "${1}"
-	else
-		echo "+${1}"
-	fi
-}
-
 GetArguments() {
 
 	while [ "$#" -gt 0 ] ; do
@@ -90,15 +81,15 @@ GetArguments() {
 				;;
 			--boot-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
-				partSize[1]=$(SetSize "${1#*=}")
+				partSize[1]="${1#*=}"
 				;;
 			--root-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
-				partSize[2]=$(SetSize "${1#*=}")
+				partSize[2]="${1#*=}"
 				;;
 			--home-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
-				partSize+=("$(SetSize "${1#*=}")")
+				partSize+=("${1#*=}")
 				partName+=("home")
 				partType+=("8300")
 				partDevL+=("p2")
@@ -108,7 +99,7 @@ GetArguments() {
 				;;
 			--var-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
-				partSize+=("$(SetSize "${1#*=}")")
+				partSize+=("${1#*=}")
 				partName+=("var")
 				partType+=("8300")
 				partDevL+=("p2")
@@ -183,39 +174,29 @@ CheckDependencies() {
 
 SetPartition() {
 
-	local size="${1}"
-	local type="${2}"
-	local name="${3}"
-	local numPart="${4}"
-
-	ShowMsg " > Creating and formatting ${name} on ${deviceName}${numPart}..."
+	ShowMsg " > Creating and formatting ${4} on ${deviceName}${5}..."
 
 	sgdisk \
-		--new=0:0:${size} \
-		--typecode=0:${type} \
-		--change-name=0:${name} \
+		--new=${5}:${1}:${2} \
+		--typecode=0:${3} \
+		--change-name=0:${4} \
 		${deviceName} 1>/dev/null 2>&1
 
-	if [ "${type}" = "0700" ]; then
-		mkfs.fat -F 32 -n ${name} ${deviceName}${numPart} 1>/dev/null 2>&1
+	if [ "${3}" = "0700" ]; then
+		mkfs.fat -F 32 -n ${4} ${deviceName}${5} 1>/dev/null 2>&1
 	else
-		mkfs.ext4 -F -L ${name} ${deviceName}${numPart} 1>/dev/null 2>&1
+		mkfs.ext4 -F -L ${4} ${deviceName}${5} 1>/dev/null 2>&1
 	fi
 }
 
 
 CopyPartition() {
 
-	local deviceFrom="${1}"
-	local deviceTo="${2}"
-	local excludes="${3}"
-	local dirFrom="${4}"
+	mount --read-only ${1} ${tempDir}/from
+	mount ${2} ${tempDir}/to
 
-	mount --read-only ${deviceFrom} ${tempDir}/from
-	mount ${deviceTo} ${tempDir}/to
-
-	ShowMsg " > Copying files to ${deviceTo}..."
-	rsync --archive ${excludes} ${tempDir}/from${dirFrom} ${tempDir}/to
+	ShowMsg " > Copying files to ${2}..."
+	rsync --archive ${3} ${tempDir}/from${4} ${tempDir}/to
 	sync
 	umount ${tempDir}/from
 	umount ${tempDir}/to
@@ -320,7 +301,7 @@ loopDevice=""
 enableSSH="0"
 partName=([1]="boot" [2]="root")
 partType=([1]="0700" [2]="8300")
-partSize=([1]="+64M" [2]="0")
+partSize=([1]="64M"  [2]="0")
 partDevL=([1]="p1"   [2]="p2")
 partExcl=([1]=""     [2]="")
 partRoot=([1]="/"    [2]="/")
@@ -354,18 +335,36 @@ ShowMsg " > Erasing device ${deviceName}..."
 sgdisk --zap-all ${deviceName} 1>/dev/null
 
 ## Perform smart copy
-for i in "${!partSize[@]}"; do
-	SetPartition "${partSize[i]}" "${partType[i]}" "${partName[i]}" "${i}"
+i=1
+while [ $i -le ${#partSize[@]} ] && [ "${partSize[$i]}" != "0" ]; do
+	SetPartition "0" "+${partSize[$i]}" "${partType[$i]}" "${partName[$i]}" "$i"
 	CopyPartition \
-		"${loopDevice}${partDevL[i]}" "${deviceName}${i}" \
-		"${partExcl[i]}" "${partRoot[i]}"
+		"${loopDevice}${partDevL[$i]}" "${deviceName}$i" \
+		"${partExcl[$i]}" "${partRoot[$i]}"
+	((i++))
 done
+
+j=${#partSize[@]}
+while [ $j -gt $i ] && [ "${partSize[$j]}" != "0" ]; do
+	SetPartition "-${partSize[$j]}" "0" "${partType[$j]}" "${partName[$j]}" "$j"
+	CopyPartition \
+		"${loopDevice}${partDevL[$j]}" "${deviceName}$j" \
+		"${partExcl[$j]}" "${partRoot[$j]}"
+	((j--))
+done
+
+if [ $i -le ${#partSize[@]} ]; then
+	SetPartition "0" "0" "${partType[$i]}" "${partName[$i]}" "$i"
+	CopyPartition \
+		"${loopDevice}${partDevL[$i]}" "${deviceName}$i" \
+		"${partExcl[$i]}" "${partRoot[$i]}"
+fi
 
 ## Adjust files
 AdjustBootFiles
 AdjustRootFiles
 
-## Create an hybrid MBR with partition type "0c" so that bootloader finds it
+## Create an hybrid MBR with partition type "0c" for the RPI bootloader
 AddHybridMBR
 
 # Clean up and exit
