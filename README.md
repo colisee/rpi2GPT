@@ -1,20 +1,45 @@
 # rpi-img2GPT
-Copy a raspiOS disk image to a GPT-partitioned device (eg. hard disk)
+Flash a raspios disk image to a GPT-partitioned device
 
 ## Usage:
 ```
-sudo rpi-img2GPT -d|--device device_name -i|--image rpi_disk_image
+sudo rpi-img2GPT [options] --image=image-file --device=device-name
+
+Options:
+  --boot-size=size-of-boot-partition
+  --root-size=size-of-root-partition
+  --home-size=size-of-home-partition
+  --root-size=size-of-var-partition
+  --enable-ssh
+  --quiet
 ```
 
-Example:
+Notes:
+- You can use the suffix (K, M, G, T) as in 64G when specifying sizes
+- A size of MAX means the remaining disk space
+- By default, the boot and root partitions are set respectively to 64M and MAX
 
-sudo rpi-img2GPT --device /dev/sdc --image 2021-05-07-raspios-buster-armhf-lite.img
+## Example:
+```
+sudo rpi-img2GPT \
+	--image 2021-05-07-raspios-buster-armhf-lite.img \
+	--device /dev/sdc \
+	--boot-size 128M \
+	--root-size 64G \
+	--home-size 16G \
+	--var-size MAX \
+	--enable-ssh
+```
 
 ## What the command does
 This command will:
-- Erase the specified device (usually a hard disk)
-- Partition the device with the GPT scheme and create 2 partitions - boot (64MB) and root (the rest of the device)
+- Erase the specified device (usually a hard disk) and create a GPT table
+- Create 2 partitions: boot and root
+- Create up to 2 additional partitions (home and var) if their size is
+ specified
 - Copy the content of the disk image to the device
-- Change the file boot/config.txt to define a 2 x 5-second-delay to run the bootloader and kernel to leave enough time for the device to spin
-- Change the file boot/cmdline.txt to define the new root mount (switching in the process to PARTLABEL from PARTUUID) and remove the call to the initial root partition resize
-- Change the file root/etc/fstab to define the 2 mount points - /boot and / - (switching in the process to PARTLABEL from PARTUUID)
+- Change the file /boot/cmdline.txt to:
+  - Define the new root mount (switching to PARTLABEL from PARTUUID)
+  - Remove the init and fsck arguments
+- Change the file /etc/fstab to update the mount points
+- Add an empty file /boot/ssh if the argument --enable-ssh was specified

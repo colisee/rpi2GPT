@@ -1,6 +1,6 @@
 #!/bin/bash
 
-##  Copyright (C) 2021  Robin ALEXANDER
+##  Copyright (C) 2021..2023  Robin ALEXANDER
 ##
 ##  This program is free software: you can redistribute it and/or modify
 ##  it under the terms of the GNU General Public License as published by
@@ -17,42 +17,112 @@
 
 DisplayUsage() {
 
-	cat <<-EOF
+	cat <<- EOF
 
-	${COMMAND} copies a raspiOS disk image to a GPT-partitioned device and performs a few adjustments to allow the raspberry-pi to boot directly from the device.
+	${COMMAND} flashes a raspberrypi disk image to a GPT-partitioned device
+	and performs a few adjustments to allow the raspberry-pi to boot directly
+	from the device.
+	When specifying partition sizes:
+	  - you can use the suffix K,M,G,T
+	  - the special value MAX to indicate the remaining disk space
 
-	Usage: 
-	${COMMAND} --device|-d device_name --image|-i disk_image
+	Usage:
+	${COMMAND} [arguments]
+
+	Required arguments:
+	-d device, --device=device
+	     Specify the name of the device to be partitioned
+	-i disk-image, --image=disk-image
+	     Specify the name the source disk image
+
+	Optional arguments:
+	--boot-size=size-of-boot-partition
+	    Specif the size of the boot partition
+	    By default 64M
+	--root-size=size-of-root-partition
+	    Specify the size of the root partition
+	    By default MAX
+	--home-size=size-of-home-partition
+	    Specify the size of the home partition
+	    By default, there is no home partition
+	--var-size=size-of-var-partition
+	    Specify the size of the var partition
+	    By default, there is no var partition
+	--enable-ssh
+	    Activate ssh
+	--quiet
+	    Do not print status messages
 
 	EOF
+}
 
-	exit 0
+ShowMsg() {
+
+	if [ "${beQuiet:=0}" = "0" ]; then
+		echo "${1}"
+	fi
 }
 
 GetArguments() {
-	## Translate long options to short ones
-	for arg in $@; do
-		delim=""
-		case ${arg} in
-			"--help") 	args="${args}-h" ;;
-			"--device") args="${args}-d" ;;
-			"--image")	args="${args}-i" ;;
-			*)			[[ "${arg:0:1}" == "-" ]] || delim="\""
-      					args="${args}${delim}${arg}${delim} ";;
-		esac
-	done
 
-	# reset the translated args
-	eval set -- "${args}"
-
-	## Parse short options
-	while getopts "hd:i:" opt; do
-		case ${opt} in
-			"h")	DisplayUsage; exit 0 ;;
-			"d")	DEVICE_NAME=${OPTARG} ;;
-			"i")	DISK_IMAGE=${OPTARG} ;;
-			*)		DisplayUsage ;;
+	while [ "$#" -gt 0 ] ; do
+		case "${1}" in
+			-h|--help)
+				DisplayUsage;
+				exit 0
+				;;
+			-d*|--device*)
+				if [ "${1}" = "${1#*=}" ]; then shift; fi
+				deviceName="${1#*=}"
+				;;
+			-i*|--image*)
+				if [ "${1}" = "${1#*=}" ]; then shift; fi
+				diskImage="${1#*=}"
+				;;
+			--boot-size*)
+				if [ "${1}" = "${1#*=}" ]; then shift; fi
+				size="${1#*=}"
+				partSize[1]="${size@U}"
+				;;
+			--root-size*)
+				if [ "${1}" = "${1#*=}" ]; then shift; fi
+				size="${1#*=}"
+				partSize[2]="${size@U}"
+				;;
+			--home-size*)
+				if [ "${1}" = "${1#*=}" ]; then shift; fi
+				size="${1#*=}"
+				partSize+=("${size@U}")
+				partName+=("home")
+				partType+=("8300")
+				partDevL+=("p2")
+				partExcl+=("")
+				partRoot+=("/home/")
+				partExcl[2]+=" --exclude=/home/"
+				;;
+			--var-size*)
+				if [ "${1}" = "${1#*=}" ]; then shift; fi
+				size="${1#*=}"
+				partSize+=("${size@U}")
+				partName+=("var")
+				partType+=("8300")
+				partDevL+=("p2")
+				partExcl+=("")
+				partRoot+=("/var/")
+				partExcl[2]+=" --exclude=/var/"
+				;;
+			--enable-ssh)
+				enableSSH="1"
+				;;
+			--quiet)
+				beQuiet="1"
+				;;
+			*)
+				DisplayUsage
+				exit 1
+				;;
 		esac
+		shift
 	done
 }
 
@@ -61,52 +131,184 @@ CheckConditions() {
 	# Check that the program is run by root
 	if [ $(id -u) -ne 0 ]; then
 		echo "${COMMAND} must be run as root" >&2
-		exit 1
-	fi
-
-	# Check that the device exists
-	if [ -z ${DEVICE_NAME} ]; then
-		echo "Device name not specified" >&2
 		exit 2
 	fi
 
-	mountpoints=$(lsblk --noheadings --list -o MOUNTPOINTS ${DEVICE_NAME} 2>/dev/null)
-	if [ ${?} -ne 0 ]; then
-		echo "Device ${DEVICE_NAME} not found" >&2
+	# Check the device
+	if [ -z "${deviceName}" ]; then
+		echo "Device name not specified" >&2
 		exit 3
 	fi
 
-	# Check that the disk image exists
-	if [ -z ${DISK_IMAGE} ]; then
+	if ! [ -b "${deviceName}" ]; then
+		echo "Device ${deviceName} not a block device" >&2
+		exit 3
+	fi
+
+	# Check the disk image
+	if [ -z "${diskImage}" ]; then
 		echo "Disk image not specified" >&2
 		exit 4
 	fi
 
-	if [ ! -f ${DISK_IMAGE} ]; then
-		echo "Disk image ${DISK_IMAGE} not found" >&2
+	if ! [ -f ${diskImage} ]; then
+		echo "Disk image ${diskImage} not found" >&2
+		exit 4
+	fi
+
+	# Check that there are no more than 1 partition with value 0
+	partitions0=$(echo -n "${partSize[@]}" | \
+		sed -e "s/MAX/@/g" -e "s/[^@]//g" | wc --chars)
+	if [ ${partitions0} -gt 1 ]; then
+		echo "Only 1 partition can take the value MAX" >&2
 		exit 5
 	fi
 }
 
-Cleanup() {
+CheckDependencies() {
 
-	echo "Cleaning up..."
-	# Unmount partitions
-	umount ${TEMP_DIR}/*
+	while [ "$#" -gt 0 ] ; do
+		if ! [ $(which "${1}") ]; then
+			echo "Command ${1} not found" >&2
+			exit 10
+		fi
+		shift
+	done
+}
 
-	# Unmap disk image
-	kpartx -d ${DISK_IMAGE}
+SetPartition() {
 
-	# Delete the temporary directory
-	if [ -d ${TEMP_DIR} ]; then
-		rm -rf ${TEMP_DIR}
+	ShowMsg " > Creating and formatting ${4} on ${deviceName}${5}..."
+
+	sgdisk \
+		--new=${5}:${1}:${2} \
+		--typecode=0:${3} \
+		--change-name=0:${4} \
+		${deviceName} 1>/dev/null 2>&1
+
+	if [ "${3}" = "0700" ]; then
+		mkfs.fat -F 32 -n ${4} ${deviceName}${5} 1>/dev/null 2>&1
+	else
+		mkfs.ext4 -F -L ${4} ${deviceName}${5} 1>/dev/null 2>&1
 	fi
 }
 
-# Initialize the program
 
-## Set constants
+CopyPartition() {
+
+	mount --read-only ${1} ${tempDir}/from
+	mount ${2} ${tempDir}/to
+
+	ShowMsg " > Copying files to ${2}..."
+	rsync --archive ${3} ${tempDir}/from${4} ${tempDir}/to
+	sync
+	umount ${tempDir}/from
+	umount ${tempDir}/to
+}
+
+AddHybridMBR() {
+
+	ShowMsg " > Adding hybrid MBR table..."
+	cat <<- EOF | gdisk ${deviceName} 1>/dev/null
+		r
+		h
+		1
+		N
+		0c
+		N
+		Y
+		EE
+		w
+		Y
+		EOF
+
+}
+
+Cleanup() {
+
+	ShowMsg " > Cleaning up..."
+	sync
+
+	# Unmount partitions and delete the temporary directory
+	if [ -n "${tempDir}" ] && [ -d ${tempDir} ]; then
+		while (mount | grep --silent ${tempDir}/from); do
+			umount ${tempDir}/from
+		done
+		while (mount | grep --silent ${tempDir}/to); do
+			umount ${tempDir}/to
+		done
+		rm -rf ${tempDir}
+	fi
+
+	# Unmap disk image
+	if [ -n "${loopDevice}" ]; then
+		losetup --detach ${loopDevice}
+	fi
+}
+
+AdjustBootFiles() {
+
+	ShowMsg " > Adjusting file /boot/cmdline.txt..."
+	mount "${deviceName}1" "${tempDir}/to"
+	sed \
+		-e 's: init=[[:graph:]]*::' \
+		-e 's: fsck.repair=yes::' \
+		-e 's: quiet::' \
+		-e 's:root=PARTUUID=[0-9,a-f,\-]*:root=PARTLABEL=root:' \
+		-i ${tempDir}/to/cmdline.txt
+
+	if [ "${enableSSH}" = "1" ]; then
+		ShowMsg " > Enabling ssh..."
+		touch ${tempDir}/to/ssh
+	fi
+
+	umount "${tempDir}/to"
+}
+
+AdjustRootFiles() {
+
+	ShowMsg " > Adjusting file /etc/fstab..."
+	mount "${deviceName}2" "${tempDir}/to"
+	sed \
+		-e 's:^PARTUUID=.*/boot:PARTLABEL=boot \t/boot:' \
+		-e 's:^PARTUUID=.*/[[:blank:]]:PARTLABEL=root \t/:' \
+		-i ${tempDir}/to/etc/fstab
+
+	if [ "$(echo -n "${partName[@]}" | grep home)" ]; then
+		echo \
+			"PARTLABEL=home  /home          ext4    defaults,noatime  0       1" \
+			>> ${tempDir}/to/etc/fstab
+	fi
+
+	if [ "$(echo -n "${partName[@]}" | grep var)" ]; then
+		echo \
+			"PARTLABEL=var   /var           ext4    defaults,noatime  0       1" \
+			>> ${tempDir}/to/etc/fstab
+	fi
+
+	umount "${tempDir}/to"
+}
+
+# MAIN
+## Set program execution flags
+set -Eeuo pipefail
+
+## Intercept interruptions
+trap Cleanup ERR HUP INT QUIT ABRT TERM
+
+## Initialize constants and variables
 readonly COMMAND=$(basename ${0})
+deviceName=""
+diskImage=""
+tempDir=""
+loopDevice=""
+enableSSH="0"
+partName=([1]="boot" [2]="root")
+partType=([1]="0700" [2]="8300")
+partSize=([1]="64M"  [2]="MAX")
+partDevL=([1]="p1"   [2]="p2")
+partExcl=([1]=""     [2]="")
+partRoot=([1]="/"    [2]="/")
 
 ## Get arguments
 GetArguments $@
@@ -114,93 +316,62 @@ GetArguments $@
 ## Check conditions
 CheckConditions
 
-## Set program execution flags
-set -euo pipefail
+## Check dependencies
+CheckDependencies rsync sfdisk sgdisk mkfs.fat mkfs.ext4 losetup
 
-## Intercept interruptions
-trap Cleanup SIGHUP SIGINT SIGQUIT SIGABRT SIGTERM
-
-# STEP-1: Prepare the hard disk
 ## unmount the partitions of the specified device, if any
-for mp in ${mountpoints}; do 
+mountpoints=$(lsblk \
+	--noheadings --list --output MOUNTPOINT ${deviceName} 2>/dev/null)
+for mp in ${mountpoints}; do
 	umount ${mp}
 done
 
-## Remove previous content
-echo "Erasing device ${DEVICE_NAME}..."
-sgdisk --zap-all ${DEVICE_NAME} 1>/dev/null
-
-## Create 2 partitions
-echo "Preparing device ${DEVICE_NAME}..."
-sgdisk --new=0:0:+64M --typecode=0:0700 --change-name=0:boot ${DEVICE_NAME} 1>/dev/null
-sgdisk --new=0:0:0 --typecode=0:8300 --change-name=0:root ${DEVICE_NAME} 1>/dev/null
-
-## Create an hybrid MBR with partition type "0c" so that bootloader finds it
-cat << EOF | gdisk ${DEVICE_NAME} 1>/dev/null
-r
-h
-1
-N
-0c
-N
-Y
-EE
-w
-Y
-EOF
-
-## Format the 3 partitions 
-mkfs.fat -F 32 -n BOOT ${DEVICE_NAME}1 1>/dev/null 2>&1
-mkfs.ext4 -F -L root ${DEVICE_NAME}2 1>/dev/null
-
-# STEP-2: Copy the content of the disk image to the hard disk
-## Create a temporary directory
-readonly TEMP_DIR=$(mktemp -d)
-
-## Mount the 2 hard-disk partitions
-mkdir ${TEMP_DIR}/d1
-mount ${DEVICE_NAME}1 ${TEMP_DIR}/d1
-mkdir ${TEMP_DIR}/d2
-mount ${DEVICE_NAME}2 ${TEMP_DIR}/d2
+## Create a temporary directory structure
+tempDir=$(mktemp --directory)
+mkdir ${tempDir}/from
+mkdir ${tempDir}/to
 
 ## Map the disk image to a loop device
-readonly LIST_MAPPINGS=$(kpartx -asv ${DISK_IMAGE})
+loopDevice=$(losetup --find --partscan --show ${diskImage})
 
-## Mount the 2 disk image partitions
-device=$(echo ${LIST_MAPPINGS} | cut -d" " -f3)
-mkdir ${TEMP_DIR}/s1
-mount /dev/mapper/${device} ${TEMP_DIR}/s1
+## Clear the destination device
+ShowMsg " > Erasing device ${deviceName}..."
+sgdisk --zap-all ${deviceName} 1>/dev/null
 
-device=$(echo ${LIST_MAPPINGS} | cut -d" " -f12)
-mkdir ${TEMP_DIR}/s2
-mount /dev/mapper/${device} ${TEMP_DIR}/s2
+## Perform smart copy
+i=1
+while [ $i -le ${#partSize[@]} ] && [ "${partSize[$i]}" != "MAX" ]; do
+	SetPartition "0" "+${partSize[$i]}" "${partType[$i]}" "${partName[$i]}" "$i"
+	CopyPartition \
+		"${loopDevice}${partDevL[$i]}" "${deviceName}$i" \
+		"${partExcl[$i]}" "${partRoot[$i]}"
+	((i++))
+done
 
-## Copy content of the disk image to the device
-echo "Copying boot-partition files..."
-rsync -a ${TEMP_DIR}/s1/ ${TEMP_DIR}/d1 
-echo "Copying root-partition files..."
-rsync -a ${TEMP_DIR}/s2/ ${TEMP_DIR}/d2 
+j=${#partSize[@]}
+while [ $j -gt $i ] && [ "${partSize[$j]}" != "MAX" ]; do
+	SetPartition "-${partSize[$j]}" "0" "${partType[$j]}" "${partName[$j]}" "$j"
+	CopyPartition \
+		"${loopDevice}${partDevL[$j]}" "${deviceName}$j" \
+		"${partExcl[$j]}" "${partRoot[$j]}"
+	((j--))
+done
 
-# STEP-3: adjust some settings
+if [ $i -le ${#partSize[@]} ]; then
+	SetPartition "0" "0" "${partType[$i]}" "${partName[$i]}" "$i"
+	CopyPartition \
+		"${loopDevice}${partDevL[$i]}" "${deviceName}$i" \
+		"${partExcl[$i]}" "${partRoot[$i]}"
+fi
 
-## /boot/config.txt: Add bootcode_delay and boot_delay
-echo "Making few adjustments..."
-echo 'bootcode_delay=5' >> ${TEMP_DIR}/d1/config.txt
-echo 'boot_delay=5' >> ${TEMP_DIR}/d1/config.txt
+## Adjust files
+AdjustBootFiles
+AdjustRootFiles
 
-## /boot/cmdline.txt: Remove one-time root file system resizing, quiet option and fsck option
-sed -e 's; init=/usr/lib/raspi-config/init_resize.sh;;' -i ${TEMP_DIR}/d1/cmdline.txt
-sed -e 's; quiet;;' -i ${TEMP_DIR}/d1/cmdline.txt
-sed -e 's; fsck.repair=yes; fsck.repair=no;' -i ${TEMP_DIR}/d1/cmdline.txt
-
-## Change mount point in /boot/cmdline.txt 
-sed -e 's;root=PARTUUID=[0-9,a-f,\-]*;root=PARTLABEL=root;' -i ${TEMP_DIR}/d1/cmdline.txt
-
-## Change mount points in /etc/fstab 
-sed -e 's;^PARTUUID=.*/boot;PARTLABEL=boot \t/boot;' -i ${TEMP_DIR}/d2/etc/fstab
-sed -e 's;^PARTUUID=.*/[[:blank:]];PARTLABEL=root \t/;' -i ${TEMP_DIR}/d2/etc/fstab
+## Create an hybrid MBR with partition type "0c" for the RPI bootloader
+AddHybridMBR
 
 # Clean up and exit
 Cleanup
-echo "Operation completed"
+ShowMsg "Operation completed"
 exit 0
