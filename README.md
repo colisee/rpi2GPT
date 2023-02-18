@@ -16,9 +16,8 @@ Options:
 
 Notes:
 - You can use the suffix (K, M, G, T) as in 64G when specifying sizes
-- A size of 0 means the remaining disk space
-- By default, the boot partition occupies 64 Mb and the root partitions takes
-the remaining device space
+- A size of MAX means the remaining disk space
+- By default, the boot and root partitions are set respectively to 64M and MAX
 
 ## Example:
 ```
@@ -28,14 +27,14 @@ sudo rpi-img2GPT \
 	--boot-size 128M \
 	--root-size 64G \
 	--home-size 16G \
-	--var-size 0 \
+	--var-size MAX \
 	--enable-ssh
 ```
 
 ## What the command does
 This command will:
 - Erase the specified device (usually a hard disk) and create a GPT table
-- Create 2 partitions: boot (default=64MB) and root (default=remaining space)
+- Create 2 partitions: boot and root
 - Create up to 2 additional partitions (home and var) if their size is
  specified
 - Copy the content of the disk image to the device

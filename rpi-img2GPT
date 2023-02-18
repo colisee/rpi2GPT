@@ -24,34 +24,34 @@ DisplayUsage() {
 	from the device.
 	When specifying partition sizes:
 	  - you can use the suffix K,M,G,T
-	  - the special value 0 to indicate the remaining disk space
+	  - the special value MAX to indicate the remaining disk space
 
 	Usage:
 	${COMMAND} [arguments]
 
 	Required arguments:
 	-d device, --device=device
-	             Specify the name of the device to be partitioned
+	     Specify the name of the device to be partitioned
 	-i disk-image, --image=disk-image
-	             Specify the name the source disk image
+	     Specify the name the source disk image
 
 	Optional arguments:
 	--boot-size=size-of-boot-partition
-	             Specif the size of the boot partition
-	             By default 64M
+	    Specif the size of the boot partition
+	    By default 64M
 	--root-size=size-of-root-partition
-	             Specify the size of the root partition
-	             By default 0 (ie. the remaining disk space)
+	    Specify the size of the root partition
+	    By default MAX
 	--home-size=size-of-home-partition
-	             Specify the size of the home partition
-	             By default, there is no home partition
+	    Specify the size of the home partition
+	    By default, there is no home partition
 	--var-size=size-of-var-partition
-	             Specify the size of the var partition
-	             By default, there is no var partition
+	    Specify the size of the var partition
+	    By default, there is no var partition
 	--enable-ssh
-	             Activate ssh
+	    Activate ssh
 	--quiet
-	             Do not print status messages
+	    Do not print status messages
 
 	EOF
 }
@@ -154,9 +154,9 @@ CheckConditions() {
 
 	# Check that there are no more than 1 partition with value 0
 	partitions0=$(echo -n "${partSize[@]}" | \
-		sed -e "s/ *0 */@/g" -e "s/[^@]//g" | wc --chars)
+		sed -e "s/MAX/@/g" -e "s/[^@]//g" | wc --chars)
 	if [ ${partitions0} -gt 1 ]; then
-		echo "Only 1 partition can take the remaining disk" >&2
+		echo "Only 1 partition can take the value MAX" >&2
 		exit 5
 	fi
 }
@@ -301,7 +301,7 @@ loopDevice=""
 enableSSH="0"
 partName=([1]="boot" [2]="root")
 partType=([1]="0700" [2]="8300")
-partSize=([1]="64M"  [2]="0")
+partSize=([1]="64M"  [2]="MAX")
 partDevL=([1]="p1"   [2]="p2")
 partExcl=([1]=""     [2]="")
 partRoot=([1]="/"    [2]="/")
@@ -336,7 +336,7 @@ sgdisk --zap-all ${deviceName} 1>/dev/null
 
 ## Perform smart copy
 i=1
-while [ $i -le ${#partSize[@]} ] && [ "${partSize[$i]}" != "0" ]; do
+while [ $i -le ${#partSize[@]} ] && [ "${partSize[$i]}" != "MAX" ]; do
 	SetPartition "0" "+${partSize[$i]}" "${partType[$i]}" "${partName[$i]}" "$i"
 	CopyPartition \
 		"${loopDevice}${partDevL[$i]}" "${deviceName}$i" \
@@ -345,7 +345,7 @@ while [ $i -le ${#partSize[@]} ] && [ "${partSize[$i]}" != "0" ]; do
 done
 
 j=${#partSize[@]}
-while [ $j -gt $i ] && [ "${partSize[$j]}" != "0" ]; do
+while [ $j -gt $i ] && [ "${partSize[$j]}" != "MAX" ]; do
 	SetPartition "-${partSize[$j]}" "0" "${partType[$j]}" "${partName[$j]}" "$j"
 	CopyPartition \
 		"${loopDevice}${partDevL[$j]}" "${deviceName}$j" \
