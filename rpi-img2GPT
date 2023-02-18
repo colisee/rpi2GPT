@@ -81,15 +81,18 @@ GetArguments() {
 				;;
 			--boot-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
-				partSize[1]="${1#*=}"
+				size="${1#*=}"
+				partSize[1]="${size@U}"
 				;;
 			--root-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
-				partSize[2]="${1#*=}"
+				size="${1#*=}"
+				partSize[2]="${size@U}"
 				;;
 			--home-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
-				partSize+=("${1#*=}")
+				size="${1#*=}"
+				partSize+=("${size@U}")
 				partName+=("home")
 				partType+=("8300")
 				partDevL+=("p2")
@@ -99,7 +102,8 @@ GetArguments() {
 				;;
 			--var-size*)
 				if [ "${1}" = "${1#*=}" ]; then shift; fi
-				partSize+=("${1#*=}")
+				size="${1#*=}"
+				partSize+=("${size@U}")
 				partName+=("var")
 				partType+=("8300")
 				partDevL+=("p2")
